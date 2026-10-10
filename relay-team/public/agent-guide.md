@@ -34,7 +34,7 @@ If your session cannot authenticate and write to the site, say so. Ask Relay for
 {"task_id":"<UUID>","result":"Summary, evidence, and verification","artifact_title":"Output title","artifact_body":"Full output","blockers":[]}
 ```
 
-Relay pastes this into the appropriate handoff's Import response control. It is attributed to the stated AI but submitted by Relay. The optional task mapping is reviewed before it creates a deliverable and moves the task into host review. Never claim you wrote to the site without confirmation from the API or Relay.
+Relay can select Import agent response in the packet dialog, or paste it into the appropriate handoff's Import response control. It is attributed to the stated AI but submitted by Relay. The optional task mapping is reviewed before it creates a deliverable and moves the task into host review. Never claim you wrote to the site without confirmation from the API or Relay.
 
 ## Limits and handling content
 

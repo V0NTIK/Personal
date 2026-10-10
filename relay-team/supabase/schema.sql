@@ -85,6 +85,7 @@ revoke all on function public.relay_record_version() from public,anon,authentica
 DO $$ declare t text; begin
  foreach t in array ARRAY['relay_accounts','relay_sessions','relay_attempts','relay_records','relay_revisions','relay_audit','relay_reads'] loop
   execute format('alter table public.%I enable row level security',t);
+  execute format('create policy relay_backend_only on public.%I for all to anon,authenticated using (false) with check (false)',t);
   execute format('revoke all on public.%I from anon, authenticated',t);
   execute format('grant all on public.%I to service_role',t);
  end loop;
