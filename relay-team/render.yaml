@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: relay-team-v0ntik
+    runtime: static
+    buildCommand: cd relay-team && npm run build
+    staticPublishPath: relay-team/dist
+    autoDeploy: true
+    envVars:
+      - key: RELAY_API_URL
+        sync: false
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co; img-src 'self' data:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'"

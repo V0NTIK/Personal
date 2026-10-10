@@ -1,0 +1,2 @@
+[functions.relay-api]
+verify_jwt = false
