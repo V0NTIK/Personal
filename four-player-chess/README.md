@@ -1,65 +1,76 @@
-# Quadra Chess
+# Quadra Chess — Multiplayer Beta
 
-Live site: https://quadra-chess.onrender.com
+Public game: https://quadra-chess.onrender.com
+API health: https://quadra-chess-api.onrender.com/health
 
-## Status
+## Current features
 
-Playable browser-based **local pass-and-play beta**. This is not yet live online multiplayer or a Chess.com-compatible implementation.
+**Local play**
+- Four-player 14×14 board with blocked 3×3 corners, all four armies.
+- Free-for-all and Red/Yellow vs Blue/Green teams.
+- Deterministic game engine: legal movement, king safety, captures, en passant, castling, promotion, elimination and victory.
+- Move history, move highlights, undo, board rotation, themes, local game save/resume and export.
 
-### Implemented
-- 14×14 board, four missing 3×3 corners, 160 playable squares.
-- Four armies (Red south, Blue west, Yellow north, Green east); 16 pieces per army.
-- Free-for-all and Red/Yellow versus Blue/Green teams.
-- Legal movement, check prevention, castling, en passant, pawn promotion, checkmate/stalemate-style elimination, allied capture protection and win detection.
-- Responsive desktop/mobile layout, turn status, move highlights, notation log, rotate, undo, themes, local save/resume, copy record.
-- Zero-backend hosting, no account required.
-- Automatic deployment from GitHub main via Render.
+**Online private rooms**
+- Create an invite-only room with a 7-character code; invite three friends, each on their own browser.
+- First player claims Red; next three become Blue, Yellow, Green.
+- WebSocket transport, full-state sync, reconnect using credentials stored in the browser tab, connection indicators.
+- Server-authoritative move validation, revision checks against stale actions, turn ownership and result calculation.
+- Unauthenticated by design: no account or chat, no public matchmaking, and no personal profiles.
+- Per-IP API rate limiting, random room identifiers and 256-bit seat secrets; payload caps, WebSocket heartbeat.
+- Server manages at most 200 simultaneous in-memory rooms; old rooms expire after twelve hours without activity.
 
-### Defined local rules
-- Turn order: Red → Blue → Yellow → Green, skipping eliminated players.
-- A player without legal moves is eliminated; all their pieces are removed.
-- Last remaining army, or remaining team, wins.
-- No points leaderboard or Chess.com dead-piece and king-capture scoring rules.
-- En passant is available only on the immediately following move (not a full 4-player orbit).
-- Pawn promotion on the far boundary (south pawn on y=3, west on x=10, north on y=10, east on x=3).
-- Material counts are informational, not score.
-- No clocks, repetition or draw-by-agreement mechanics yet.
+## Limitations and important rules
 
-## Architecture evolution plan
+- **Online games are ephemeral.** Render free web services spin down or restart. Rooms and game positions held only in server memory disappear on restarts/redeployments. Local saves are unaffected.
+- The four-player rules are the site's own explicit variant, not guaranteed to match Chess.com's score, dead-piece or elimination rules.
+- En passant lasts only until the next move (not a four-turn orbit).
+- Players with no legal moves are eliminated and their pieces removed. The last surviving color/team wins.
+- An online game starts once four seats are claimed, even if a seat later goes offline. Friends may reconnect from the same tab; no automated forfeit yet.
+- No clocks, rated games, online persistence, anti-cheat, public chat, moderation portal, spectators or custom games yet.
+- No sensitive user credentials or private messages are collected.
+- Other production limitations include lack of rate limiting across instances and no durable match history. Do not use for tournaments with prizes or important matches.
 
-The current entrypoint is intentionally self-contained for easy free static deployment. Before launching multiplayer, separate into:
+## Architecture
 
 ```
-apps/web                  # responsive client, game views, lobby, profile, analysis
-apps/api                  # authenticated realtime gateway, matchmaking, presence
-packages/game-core        # pure deterministic versioned chess rules engine
-packages/variants         # variant interfaces and metadata
-packages/protocol         # typed client/server events, versioning
-packages/ui               # accessible boards, pieces, controls
-packages/test-fixtures    # golden move generation/notation and regression games
-infra                     # database migrations, RLS, deployments, observability
+four-player-chess/
+  index.html                browser UI, local and room controls
+  app.js                    client board and WebSocket UX
+  engine.js                 UMD module, shared Node/browser rules engine
+  server.js                 Node HTTP + WebSocket, authoritative moves
+  package.json              pinned dependency + predeploy tests
+  tests/
+    engine.test.cjs         deterministic movement and variant regression tests
+    server.test.cjs         API and WebSocket integration tests
 ```
 
-### Hard requirements for authoritative online play
+The frontend is a Render **static site**. The backend is a separate Render **free Node web service** in Ohio. Both services deploy automatically from GitHub main. Static content is served from this folder; server starts with `node four-player-chess/server.js`.
 
-1. Server validates every move and checks current player, revision, variant, game state and clock; never trust client legal moves.
-2. Atomic versioned move transactions with idempotency keys to prevent double commits and race conditions.
-3. Stable event log with snapshots for restoration, replay and audit.
-4. Clock management using server timestamps and monotonic time, reconnect grace, per-move deadlines.
-5. Presence and reconnection, spectators with optional delay, lobby privacy and invitation URLs.
-6. Auth and robust authorization (row-level permissions), reporting, moderation, rate limiting and abuse prevention.
-7. Profile data minimization, no publicly exposed emails, private matches by default for young users.
-8. Game engine unit tests including pins, checks, cross-board slides, pawn diagonals, castling through attack, team attacks, en passant and elimination cascades.
-9. CI with type checking, lint, engine property tests, UI integration tests and deployment checks.
+### Development
 
-### Future roadmap
+Node.js 20+ required:
 
-**Next:** extract engine, implement formal move specification and broad automated tests, clocks, accessibility enhancements, rulebook, replay, importer/exporter.
+```sh
+cd four-player-chess
+npm install
+npm test
+npm start
+```
 
-**Then:** server-authoritative realtime rooms, invites, reconnect, spectators, game persistence, privacy settings, guest play, authenticated profiles and matchmaking.
+The `postinstall` hook runs tests after dependency installation. The local test server listens on a random port; production HTTP listens to `PORT` or 3001. Configure `WEB_ORIGIN` to the public frontend origin. For local client development, localhost origins are permitted in the server's CORS and WebSocket Origin checks. The frontend's API URL is currently fixed in app.js.
 
-**Later:** Chess960, standard two-player chess, atomic, crazyhouse, custom variant registry, tournaments, ratings by variant, training puzzles, bots, game explorer, API and other board games.
+### Variant expansion
 
-## Operational notes
+A long-term architecture should separate dedicated packages for `game-core`, `variants`, `protocol`, `ui`, and `test-fixtures`. Each variant will specify initial state, legal move generation, turn order, time controls, result evaluation and game record serialization. The current engine is the first standalone core module.
 
-Code lives in `V0NTIK/Personal/four-player-chess/`, isolated from other repositories and projects. Render static service `quadra-chess` publishes that folder on each commit to main. No Supabase project or cost-bearing backend has been created.
+### Next major steps
+
+1. Harden all chess edge cases with property-based tests and formal four-player rulebook.
+2. Move browser API endpoints to environment-based configuration and add deployment smoke tests.
+3. Durable online games with a real database; game event log, snapshots and server-side clocks.
+4. Presence/forfeits, flexible seat assignments, game-room settings, spectators and private tournaments.
+5. Secure optional accounts, friends, matchmaking, ratings and moderation before public social features.
+6. Chess960, classic chess, additional variants, then games beyond chess.
+
+See current deployed app and Render dashboards for real deployment status. Live match behavior should be tested with four browsers before inviting broad groups.
