@@ -4,6 +4,9 @@ const assert=require("node:assert/strict");
 const {once}=require("node:events");
 const WebSocket=require("ws");
 const Engine=require("../engine.js");
+// Integration tests use an isolated in-memory store even when Render provides DATABASE_URL.
+// Never connect test cases to the live database during build or CI.
+delete process.env.DATABASE_URL;
 const {app,shutdown,rooms,expireTurn}=require("../server.js");
 function nextMessage(ws,predicate,timeout=5000){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{ws.off("message",onMessage);reject(Error("Timed out waiting for WebSocket message."));},timeout);const onMessage=raw=>{let v;try{v=JSON.parse(raw.toString());}catch(e){return;}if(predicate(v)){clearTimeout(timer);ws.off("message",onMessage);resolve(v);}};ws.on("message",onMessage);});}
 test("private room joins and server-authoritative moves over WebSockets",async()=>{
