@@ -593,7 +593,7 @@ async function enterRoom(which){
   const preference=$("preferredSeat").value;
   const seat=preference===""?null:Number(preference);
   let clock=$("onlineClock").value;
-  if(clock==="custom"){
+  if(which==="create"&&clock==="custom"){
    const minutes=Number($("customMinutes").value),incrementSeconds=Number($("customIncrement").value);
    if(!Number.isInteger(minutes)||minutes<1||minutes>180||!Number.isInteger(incrementSeconds)||incrementSeconds<0||incrementSeconds>60)throw Error("Custom time: 1–180 minutes and 0–60 seconds per move.");
    clock={type:"custom",minutes,incrementSeconds};
@@ -608,18 +608,27 @@ async function enterRoom(which){
 function leaveRoom(vacated=false){
  if(!online)return;
  const s=online;
- if(!s.spectator&&!vacated&&!s.ready&&s.connected&&s.ws?.readyState===WebSocket.OPEN){
-  s.ws.send(JSON.stringify({type:"vacate"}));onlineMessage("Releasing your unused seat…");return;
+ if(!s.spectator&&!vacated){
+  if(!s.connected||s.ws?.readyState!==WebSocket.OPEN){tell("Reconnect to release your seat. Disconnecting alone does not remove the room.");return;}
+  if(s.ready&&!state.winner&&!confirm("Leaving a live game resigns your color. Continue?"))return;
+  s.ws.send(JSON.stringify({type:"vacate"}));onlineMessage("Leaving room and releasing seat…");return;
  }
- const keepCredentials=!s.spectator&&(s.ready||(!vacated&&!s.connected));
  s.closed=true;if(retryTimer)clearTimeout(retryTimer);s.ws?.close();
  online=null;
- if(!keepCredentials)try{sessionStorage.removeItem(ROOM_KEY);}catch(e){}
+ try{sessionStorage.removeItem(ROOM_KEY);}catch(e){}
  if(backup){state=backup.state;stack=backup.stack;orientation=backup.orientation;}
  else{state=fresh("ffa");stack=[];}
  backup=null;reviewIndex=null;selected=-1;targets=[];pending=null;
  switchLocation("local");switchPanel("rooms");render();
- tell(keepCredentials?"Disconnected. Your seat is reserved; reconnect from this tab.":"Lobby seat released. Back to local play.");
+ if(!vacated)tell("Returned to the public rooms.");
+}
+async function joinByCode(code){
+ if(online){tell("Leave your current room before joining another.");return;}
+ const room=String(code||"").trim().toUpperCase();
+ if(!/^[A-F0-9]{7}$/.test(room)){tell("Enter the seven-character room code.");return;}
+ $("roomInput").value=room;$("preferredSeat").value="";
+ switchPanel("play",true);switchLocation("online");
+ await enterRoom("join");
 }
 function watchRoom(room,key=null){
  if(online){tell("Leave your current room before watching another.");return;}
@@ -643,8 +652,22 @@ function copyInvite(){
 function bind(){
  for(const button of document.querySelectorAll("[data-tab]"))button.addEventListener("click",()=>switchPanel(button.dataset.tab,false));
  $("headerHelp").addEventListener("click",()=>switchPanel("rules",true));
+ $("headerHome").addEventListener("click",()=>switchPanel("home",true));
  $("headerRooms").addEventListener("click",()=>switchPanel("rooms",true));
+ $("headerPlay").addEventListener("click",()=>switchPanel("play",true));
+ $("headerLeaders").addEventListener("click",()=>switchPanel("community",true));
  $("headerAccount").addEventListener("click",()=>switchPanel("account",true));
+ $("headerAdmin").addEventListener("click",()=>switchPanel("admin",true));
+ $("brandHome").addEventListener("click",e=>{e.preventDefault();switchPanel("home",true);});
+ for(const [id,page] of [["homeRooms","rooms"],["homeWatch","rooms"],["homeRules","rules"]])$(id).addEventListener("click",()=>switchPanel(page,true));
+ const host=()=>{switchPanel("play",true);switchLocation("online");};
+ $("homeCreate").addEventListener("click",host);
+ for(const id of ["homeLocal","roomsLocal"])$(id).addEventListener("click",()=>{switchPanel("play",true);switchLocation("local");});
+ for(const [button,input] of [["homeJoin","homeJoinCode"],["quickJoinButton","quickJoinCode"]]){
+  $(button).addEventListener("click",()=>joinByCode($(input).value));
+  $(input).addEventListener("input",e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-F0-9]/g,"").slice(0,7);});
+  $(input).addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$(button).click();}});
+ }
  $("onlineClock").addEventListener("change",e=>$("customTimeFields").classList.toggle("hidden",e.target.value!=="custom"));
  $("localMode").addEventListener("click",()=>switchLocation("local"));
  $("onlineMode").addEventListener("click",()=>switchLocation("online"));
@@ -693,6 +716,28 @@ function bind(){
  $("copyInvite").addEventListener("click",copyInvite);
  $("copySpectatorInvite").addEventListener("click",copySpectatorInvite);
  $("rotateWatchLink").addEventListener("click",()=>{if(online?.connected&&!online.spectator&&online.seat===online.hostSeat)online.ws.send(JSON.stringify({type:"spectator-key-rotate"}));});
+ $("hostRoomClock").addEventListener("change",()=>{ $("hostCustomTime").classList.toggle("hidden",$("hostRoomClock").value!=="custom");});
+ $("saveHostSettings").addEventListener("click",()=>{
+  if(!online?.connected||online.spectator||online.seat!==online.hostSeat)return;
+  const payload={type:"room-settings",title:$("hostRoomTitle").value.trim(),
+   visibility:$("hostRoomVisibility").value,rated:online.ready?online.rated:$("hostRoomRated").checked,
+   mode:online.ready?state.mode:$("hostRoomFormat").value};
+  if(!online.ready){
+   payload.clock=$("hostRoomClock").value;
+   if(payload.clock==="custom"){
+    const minutes=Number($("hostCustomMinutes").value),incrementSeconds=Number($("hostCustomIncrement").value);
+    if(!Number.isInteger(minutes)||minutes<1||minutes>180||!Number.isInteger(incrementSeconds)||incrementSeconds<0||incrementSeconds>60){tell("Custom time must be 1–180 minutes and 0–60 seconds increment.");return;}
+    payload.clock={type:"custom",minutes,incrementSeconds};
+   }
+  }
+  online.ws.send(JSON.stringify(payload));
+  onlineMessage("Saving room settings…");
+ });
+ $("deleteHostedRoom").addEventListener("click",()=>{
+  if(!online?.connected||online.spectator||online.seat!==online.hostSeat)return;
+  if(!confirm("Permanently delete this room for every player and spectator? The room cannot be restored."))return;
+  online.ws.send(JSON.stringify({type:"delete-room"}));
+ });
  $("nextRound").addEventListener("click",()=>{if(online?.connected&&!online.spectator&&online.seat===online.hostSeat&&state.winner&&confirm("Open a fresh match in this room? Chat and archived matches will stay."))online.ws.send(JSON.stringify({type:"new-round"}));});
  $("sendChat").addEventListener("click",()=>{
   if(!online?.connected||online.spectator){tell("Join as a player to chat.");return;}
@@ -724,7 +769,7 @@ function bind(){
 }
 function init(){
  try{const old=JSON.parse(localStorage.getItem(PREFS_KEY)||"null");if(old&&typeof old==="object")prefs={...initialPrefs,...old};}catch(e){}
- const resumed=restoreAuto();updateTheme();bind();
+ const resumed=restoreAuto();updateTheme();bind();switchPanel("home");
  if(resumed&&prefs.follow)orientation=state.turn;
  const invited=new URLSearchParams(location.search).get("room");
  const watchCode=new URLSearchParams(location.search).get("watch");
@@ -733,14 +778,16 @@ function init(){
   watchRoom(watchCode,watchKey);return;
  }
  if(invited&&/^[A-F0-9]{7}$/i.test(invited)){
-  $("roomInput").value=invited.toUpperCase();switchLocation("online");onlineMessage("Invitation detected. Select Join room to take a seat.");
+  $("roomInput").value=invited.toUpperCase();
+  onlineMessage("Invite detected · joining room…");
+  setTimeout(()=>{if(!online)joinByCode(invited);},400);
  }
  render();
  if(resumed&&state.moves.length)tell("Your local game was restored.");
 }
 init();
 window.QuadraApp={getState:()=>state,getReviewIndex:()=>reviewIndex,changePanel:switchPanel,openRoom:connectRoom,
- watchRoom,isOnline:()=>!!online,refresh:render,getPositions:()=>online?.replayStates||localReplayFrames(),
+ watchRoom,joinRoomCode:joinByCode,isOnline:()=>!!online,refresh:render,getPositions:()=>online?.replayStates||localReplayFrames(),
  getOnline:()=>online?{room:online.room,seat:online.seat,spectator:online.spectator,rated:online.rated,visibility:online.visibility,ready:online.ready,
   gameNo:online.gameNo,hostSeat:online.hostSeat}:null,
  reviewPly:(i)=>{if(Number.isInteger(i)&&i>=0&&i<=reviewLength()){reviewIndex=i===reviewLength()?null:i;selected=-1;targets=[];render();switchPanel("moves",true);}}
