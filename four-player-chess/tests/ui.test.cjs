@@ -120,3 +120,20 @@ test("private online room handshake gates moves and submits server move",async()
  assert.equal(ws.sent.at(-1).from,m.from);
  assert.equal(ws.sent.at(-1).to,m.to);
 });
+
+test("online clock selection and authoritative clock snapshot render properly",async()=>{
+ const {nodes,sockets,requests}=launch();
+ nodes.onlineMode.emit("click");
+ nodes.onlineClock.value="rapid15";
+ await nodes.createRoom.emit("click");
+ const payload=JSON.parse(requests[0].options.body);
+ assert.equal(payload.clock,"rapid15");
+ const ws=sockets[0];ws.onopen();
+ ws.receive({type:"welcome",seat:0,persistent:false});
+ const clock={preset:"rapid15",remaining:[900000,900000,900000,900000],activeSince:Date.now(),started:true,flag:null};
+ ws.receive({type:"state",revision:0,ready:true,seats:[{claimed:true,online:true},{claimed:true,online:true},{claimed:true,online:true},{claimed:true,online:true}],game:Engine.fresh(),clock,persistent:false,variant:"quadra-ffa"});
+ assert.equal(nodes.roomClockName.textContent,"15 min + 10 sec");
+ assert.equal(nodes.roomStorage.textContent,"Temporary memory");
+ assert.ok(nodes.players.children[0].children.some(child=>child.className==="clock-time"));
+ assert.match(nodes.players.children[0].children.at(-1).textContent,/^15:00$/);
+});
