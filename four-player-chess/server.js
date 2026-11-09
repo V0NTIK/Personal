@@ -419,6 +419,15 @@ const app=http.createServer(async(req,res)=>{
  if(path==="/health"&&req.method==="GET")return send(res,req,200,{ok:true,rooms:rooms.size,protocol:3,accounts:auth.enabled,storage:store.persistent?"postgres":"memory"});
  if(limited(req))return send(res,req,429,{error:"Too many requests."});
  if(path==="/api/catalog"&&req.method==="GET")return send(res,req,200,{variants:variants.VARIANTS,clocks:Object.values(Clock.PRESETS),customTime:{minMinutes:1,maxMinutes:180,minIncrementSeconds:0,maxIncrementSeconds:60}});
+ if(path==="/api/rooms/public"&&req.method==="GET"){
+  try{return send(res,req,200,{rooms:await listPublicRooms()});}
+  catch(e){return send(res,req,503,{error:"Could not load public rooms."});}
+ }
+ if(path==="/api/community/leaderboard"&&req.method==="GET"){
+  try{const mode=new URL(req.url,"http://localhost").searchParams.get("mode")||"ffa";
+   return send(res,req,200,{mode,players:await community.leaderboard(mode)});}
+  catch(e){return send(res,req,503,{error:"Leaderboards are temporarily unavailable."});}
+ }
  try{
   if(path.startsWith("/api/auth/")){
    if(!auth.enabled)return send(res,req,503,{error:"Accounts need persistent storage."});
@@ -431,7 +440,7 @@ const app=http.createServer(async(req,res)=>{
    if(req.method==="GET"&&(action==="me"||action==="rooms")){
     const account=await optionalAccount(req);
     if(!account)return send(res,req,401,{error:"Sign in required."});
-    return send(res,req,200,action==="rooms"?{rooms:accountRooms(account)}:{account,rooms:accountRooms(account)});
+    return send(res,req,200,action==="rooms"?{rooms:accountRooms(account)}:{account,rooms:accountRooms(account),profile:await community.profile(account.id)});
    }
    if(req.method==="POST"&&action==="logout"){
     const token=requestToken(req);if(token)await auth.logout(token);
@@ -453,7 +462,7 @@ const app=http.createServer(async(req,res)=>{
    const body=await readBody(req);
    if(!body||!["ffa","teams"].includes(body.mode))return send(res,req,400,{error:"Invalid game format."});
    const account=await optionalAccount(req);
-   const data=await createRoom(body.mode,body.clock??"untimed",body.variant||null,{seat:body.seat,title:body.title,account});
+   const data=await createRoom(body.mode,body.clock??"untimed",body.variant||null,{seat:body.seat,title:body.title,visibility:body.visibility,rated:body.rated,account});
    return send(res,req,201,data);
   }
   const match=path.match(/^\/api\/rooms\/([A-F0-9]{7})(?:\/(join))?$/i);
@@ -486,10 +495,26 @@ wss.on("connection",ws=>{
   let msg;try{msg=JSON.parse(raw.toString());}catch(e){return emit(ws,{type:"error",error:"Invalid message."});}
   const t=now();if(t-ws.window>10000){ws.window=t;ws.received=0;}
   if(++ws.received>40)return ws.close(4008,"Rate limit");
-  if(!ws.room){void authentic(ws,msg).then(ok=>{if(!ok)ws.close(4003,"Invalid room credentials");else clearTimeout(timeout);}).catch(()=>ws.close(4003,"Authentication error"));return;}
+  if(!ws.room){
+   if(msg?.type==="watch"){
+    if(!watchRoom(ws,msg))ws.close(4003,"Spectator access denied");else clearTimeout(timeout);
+    return;
+   }
+   void authentic(ws,msg).then(ok=>{if(!ok)ws.close(4003,"Invalid room credentials");else clearTimeout(timeout);}).catch(()=>ws.close(4003,"Authentication error"));
+   return;
+  }
   const r=ws.room;r.updated=t;
   if(msg.type==="ping")return emit(ws,{type:"pong"});
   if(msg.type==="sync")return emit(ws,snapshot(r));
+  if(ws.spectator){
+   if(msg.type==="archive")return sendArchive(r,msg.gameNo,ws);
+   return emit(ws,{type:"error",error:"Spectators have read-only access."});
+  }
+  if(msg.type==="chat")return void handleRoomChat(r,ws,msg).catch(()=>emit(ws,{type:"error",error:"Chat could not be saved."}));
+  if(msg.type==="chat-report")return void handleChatReport(r,ws,msg).catch(()=>emit(ws,{type:"error",error:"Report failed."}));
+  if(msg.type==="moderate")return void handleModeration(r,ws,msg).catch(()=>emit(ws,{type:"error",error:"Moderation failed."}));
+  if(msg.type==="new-round")return void handleNewRound(r,ws).catch(()=>emit(ws,{type:"error",error:"New round could not start."}));
+  if(msg.type==="spectator-key-rotate")return void rotateSpectatorKey(r,ws).catch(()=>emit(ws,{type:"error",error:"Could not update the spectator link."}));
   if(msg.type==="ready"||msg.type==="unready")return void handleReady(r,ws.seat,ws,msg.type==="ready").catch(()=>emit(ws,{type:"error",error:"Could not update readiness."}));
   if(msg.type==="rematch")return void handleRematch(r,ws.seat,ws).catch(()=>emit(ws,{type:"error",error:"Rematch failed."}));
   if(msg.type==="resign")return void handleResign(r,ws.seat,ws).catch(()=>emit(ws,{type:"error",error:"Resignation failed."}));
@@ -501,6 +526,7 @@ wss.on("connection",ws=>{
  });
  ws.on("close",()=>{
   clearTimeout(timeout);const r=ws.room;
+  if(ws.spectator&&r){r.spectators?.delete(ws);broadcast(r);return;}
   if(r?.seats[ws.seat]?.ws===ws){r.seats[ws.seat].ws=null;r.seats[ws.seat].lastSeen=now();
    if(!r.started&&r.seatReady[ws.seat])void lockRoom(r,async()=>{const votes=r.seatReady.slice();votes[ws.seat]=false;await commitRoom(r,{...r,seatReady:votes,updated:now()});}).catch(()=>broadcast(r));
    else broadcast(r);}
@@ -524,6 +550,7 @@ const cleanup=setInterval(async()=>{
  for(const [key,r] of rooms){
   if(t-r.updated>ROOM_TTL){
    for(const s of r.seats)if(s?.ws)s.ws.close(4004,"Room expired");
+   for(const spectator of r.spectators||[])spectator.close(4004,"Room expired");
    rooms.delete(key);
   }
  }
@@ -549,4 +576,4 @@ async function startServer(){
 }
 if(require.main===module)startServer().catch(err=>{console.error("Server startup failed:",err.message);process.exitCode=1;});
 process.on("SIGTERM",shutdown);
-module.exports={app,wss,rooms,store,auth,community,createRoom,joinRoom,snapshot,shutdown,startServer,expireTurn,reclaimLobbySeats,LOBBY_RECLAIM_MS,handleReady};
+module.exports={app,wss,rooms,store,auth,community,createRoom,joinRoom,snapshot,shutdown,startServer,expireTurn,reclaimLobbySeats,LOBBY_RECLAIM_MS,handleReady,watchRoom,handleRoomChat,handleNewRound,listPublicRooms};
