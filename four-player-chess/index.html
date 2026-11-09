@@ -87,6 +87,8 @@
             <select id="roomFilter" class="select"><option value="all">All public</option><option value="join">Open seats</option><option value="watch">Games to watch</option><option value="rated">Rated rooms</option></select>
           </div>
         </div>
+        <div class="field"><label for="roomSort" class="field-label">SORT ROOMS</label>
+          <select class="select" id="roomSort"><option value="rating">Average rating · Highest first</option><option value="audience">Most spectators</option><option value="players">Most players</option><option value="recent">Recently active</option></select></div>
         <button type="button" class="button ghost full" id="refreshPublicRooms">Refresh public rooms</button>
         <p class="room-help" id="publicRoomStatus" role="status" aria-live="polite">Loading public rooms…</p>
         <div class="public-room-list" id="publicRoomList"></div>
