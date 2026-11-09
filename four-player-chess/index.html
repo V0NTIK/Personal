@@ -5,27 +5,55 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#0b1018">
   <meta name="description" content="Play four-player chess with friends. Beautifully simple local games and invite-only online rooms.">
-  <title>Quadra Chess — Four minds. One board.</title>
+  <title>Quadra Chess | Four-Player Chess Rooms</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
 <div class="app">
   <header class="site-header">
-    <a class="brand-link" href="/" aria-label="Quadra Chess home">
-      <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 32 32" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4v24M4 16h24M7 7l18 18M25 7 7 25"/><circle cx="16" cy="16" r="5" fill="#bdf4d5" stroke="#bdf4d5"/></svg>
-      </span>
-      <span><span class="wordmark">QUADRA<span>.</span>CHESS</span><span class="brand-caption">Four-sided strategy</span></span>
+    <a class="brand-link" href="/" id="brandHome" aria-label="Quadra Chess home">
+      <span class="brand-mark" aria-hidden="true"><img src="./favicon.svg" alt="" width="36" height="36"></span>
+      <span class="brand-lockup"><span class="wordmark">QUADRA<span class="brand-dot">.</span> CHESS</span><span class="brand-caption">FOUR-PLAYER CHESS</span></span>
     </a>
-    <div class="header-actions">
+    <nav class="header-actions" aria-label="Main navigation">
+      <button type="button" id="headerHome" class="text-link">Home</button>
       <button type="button" id="headerRooms" class="text-link">Rooms</button>
-      <button type="button" id="headerHelp" class="text-link">How to play</button>
+      <button type="button" id="headerPlay" class="text-link">Play</button>
+      <button type="button" id="headerLeaders" class="text-link">Leaders</button>
+      <button type="button" id="headerHelp" class="text-link">Help</button>
       <button type="button" id="headerAccount" class="text-link">Account</button>
-      <span class="beta">Open beta</span>
-    </div>
+      <button type="button" id="headerAdmin" class="text-link hidden">Admin</button>
+    </nav>
   </header>
-  <div class="layout">
+  <main class="home-screen" id="homeScreen" aria-label="Quadra Chess home">
+    <div class="home-hero">
+      <div class="eyebrow">THE FOUR-PLAYER CHESS CLUBHOUSE</div>
+      <h1>Four minds.<br><span>One board.</span></h1>
+      <p>Create a room, invite your friends, and come back for another round. Built for the players who are here, not for endless matchmaking.</p>
+      <div class="home-actions">
+        <button id="homeRooms" type="button" class="button primary">Explore public rooms</button>
+        <button id="homeCreate" type="button" class="button ghost">Host a room</button>
+        <button id="homeLocal" type="button" class="button ghost">Pass &amp; play</button>
+      </div>
+    </div>
+    <section class="home-stats" aria-label="Live community activity">
+      <div class="home-stat"><strong id="homeAccounts">—</strong><span>Accounts</span></div>
+      <div class="home-stat"><strong id="homePlayers">—</strong><span>Players online</span></div>
+      <div class="home-stat"><strong id="homeRoomsCount">—</strong><span>Rooms</span></div>
+      <div class="home-stat"><strong id="homeSpectators">—</strong><span>Spectators</span></div>
+      <p id="homeStatsStatus" class="home-stats-note">Connecting to the community…</p>
+    </section>
+    <section class="home-shortcuts" aria-label="Ways to play">
+      <div class="home-tile"><span class="tile-index">01 · JOIN</span><h2>Have an invite code?</h2><p>Enter seven characters to join a room and take the first open seat.</p>
+        <div class="inline-join"><input class="input" id="homeJoinCode" maxlength="7" placeholder="Room code" autocomplete="off" aria-label="Room code"><button type="button" id="homeJoin" class="button primary">Join</button></div></div>
+      <div class="home-tile"><span class="tile-index">02 · WATCH</span><h2>Watch live games</h2><p>Open a spectator seat without joining a match. Signed-in spectators are visible to the room.</p>
+        <button type="button" class="button ghost" id="homeWatch">Browse live games</button></div>
+      <div class="home-tile"><span class="tile-index">03 · LEARN</span><h2>New to Quadra?</h2><p>Learn the four-sided rules, formats, turns and winning conditions.</p>
+        <button type="button" class="button ghost" id="homeRules">Read the rules</button></div>
+    </section>
+  </main>
+  <div class="layout hidden" id="workLayout">
     <main class="arena" id="arena">
       <div class="arena-titlebar">
         <div>
