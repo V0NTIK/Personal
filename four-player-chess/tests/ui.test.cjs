@@ -26,7 +26,7 @@ class MockElement{
 }
 function launch({storage=new Map(),url=""}={}){
  const nodes={};for(const id of ids)nodes[id]=new MockElement();
- const tabs=["rooms","play","moves","review","community","settings","rules","account"].map(tab=>{const node=nodes["tab-"+tab];node.dataset.tab=tab;return node;});
+ const tabs=["local","create","rooms","play","moves","review","community","settings","rules","account","admin"].map(tab=>{const node=nodes["tab-"+tab];node.dataset.tab=tab;return node;});
  const document={
   getElementById:id=>nodes[id],
   createElement:()=>new MockElement(),
@@ -47,7 +47,7 @@ function launch({storage=new Map(),url=""}={}){
  }
  const window={QuadraCore:Engine,matchMedia:()=>({matches:false}),addEventListener(){}};
  const navigator={clipboard:{writeText:async()=>{}}};
- const location={origin:"https://quadra-chess.onrender.com",pathname:"/",search:url};
+ const location={origin:"https://quadra-chess.onrender.com",pathname:"/",search:url,hash:"#/home"};
  const requests=[];
  const fetch=async(url,options)=>{requests.push({url,options});if(url.endsWith("/api/rooms"))return {ok:true,json:async()=>({room:"ABC1234",seat:0,token:"t".repeat(43),mode:"ffa",revision:0})};return {ok:true,json:async()=>({room:"ABC1234",seat:1,token:"q".repeat(43),mode:"ffa",revision:0})};};
  const context={window,document,localStorage,sessionStorage,navigator,location,URLSearchParams,WebSocket:FakeSocket,fetch,AbortController,
@@ -311,11 +311,45 @@ test("home hub, global pages and contextual game navigation remain accessible",(
  nodes.headerHome.emit("click");
  assert.equal(nodes.homeScreen.classList.contains("hidden"),false);
 });
-test("one-code room joining bypasses the advanced room host form",async()=>{
+test("room setup page offers code joining without mixing it into local play or the public lobby",async()=>{
  const {nodes,requests,window}=launch();
- nodes.homeJoinCode.value="abc1234";
- await nodes.homeJoin.emit("click");
+ nodes.headerRooms.emit("click");
+ assert.equal(nodes["panel-rooms"].classList.contains("hidden"),false);
+ assert.equal(nodes["panel-create"].classList.contains("hidden"),true);
+ nodes.headerCreate.emit("click");
+ assert.equal(nodes["panel-create"].classList.contains("hidden"),false);
+ assert.equal(nodes.arena.classList.contains("hidden"),true);
+ nodes.quickJoinCode.value="abc1234";
+ await nodes.quickJoinButton.emit("click");
  assert.equal(requests.some(r=>r.url.endsWith("/api/rooms/ABC1234/join")),true);
  assert.equal(window.QuadraApp.isOnline(),true);
- assert.equal(nodes["panel-play"].classList.contains("hidden"),false);
+ assert.equal(nodes.waitingRoomScreen.classList.contains("hidden"),false);
+ assert.equal(nodes.arena.classList.contains("hidden"),true);
 });
+test("pregame room and active match use separate UI states and transition on authoritative updates",async()=>{
+ const {nodes,sockets}=launch();
+ nodes.headerCreate.emit("click");
+ await nodes.createRoom.emit("click");
+ assert.equal(nodes.waitingRoomScreen.classList.contains("hidden"),false);
+ assert.equal(nodes.workLayout.classList.contains("hidden"),true);
+ const ws=sockets[0];ws.onopen();ws.receive({type:"welcome",seat:0});
+ const seats=Array.from({length:4},(_,i)=>({color:i,claimed:true,online:true,ready:false,alias:i===0?"orlandowyman":null,role:i===0?"superuser":"user"}));
+ ws.receive({type:"state",revision:0,ready:false,filled:true,seatReady:[true,false,false,false],seats,game:Engine.fresh()});
+ assert.equal(nodes.waitingReadyCount.textContent,"1 / 4");
+ assert.equal(nodes.waitingOccupancy.textContent,"4 / 4");
+ assert.equal(nodes.readyControls.classList.contains("hidden"),false);
+ assert.equal(nodes.matchActions.classList.contains("hidden"),true);
+ assert.equal(nodes.waitingRoomContent.children.at(-1),nodes.roomDetails);
+ assert.ok(nodes.roomSeats.children[0].children[1].children.some(c=>c.className==="superuser-badge"));
+ ws.receive({type:"state",revision:0,ready:true,filled:true,seatReady:[true,true,true,true],seats,game:Engine.fresh()});
+ assert.equal(nodes.waitingRoomScreen.classList.contains("hidden"),true);
+ assert.equal(nodes.workLayout.classList.contains("hidden"),false);
+ assert.equal(nodes.arena.classList.contains("hidden"),false);
+ assert.equal(nodes["panel-play"].classList.contains("hidden"),false);
+ assert.equal(nodes.readyControls.classList.contains("hidden"),true);
+ assert.ok(nodes.players.children[0].children.some(c=>c.className==="superuser-badge"));
+ ws.receive({type:"state",revision:1,ready:false,filled:true,seatReady:[false,false,false,false],seats,game:Engine.fresh()});
+ assert.equal(nodes.waitingRoomScreen.classList.contains("hidden"),false);
+ assert.equal(nodes.arena.classList.contains("hidden"),true);
+});
+
