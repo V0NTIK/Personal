@@ -12,7 +12,7 @@ function mockStore(){
   if(q.startsWith("INSERT INTO quadra_accounts")){
    const [id,handle,pass_salt,pass_hash,recovery_hash]=params;
    if(users.has(handle))return {rowCount:0,rows:[]};
-   const user={id,handle,pass_salt,pass_hash,recovery_hash,created_at:new Date()};
+   const user={id,handle,pass_salt,pass_hash,recovery_hash,role:"user",banned_at:null,created_at:new Date()};
    users.set(handle,user);return {rowCount:1,rows:[user]};
   }
   if(q.startsWith("INSERT INTO quadra_sessions")){
@@ -20,13 +20,25 @@ function mockStore(){
   }
   if(q.startsWith("SELECT a.id,a.handle,a.created_at")){
    const id=sessions.get(params[0]),user=[...users.values()].find(x=>x.id===id);
-   return {rowCount:user?1:0,rows:user?[user]:[]};
+   return {rowCount:user&&!user.banned_at?1:0,rows:user&&!user.banned_at?[user]:[]};
   }
   if(q.startsWith("SELECT id,handle,pass_salt,pass_hash")){
    const user=users.get(params[0]);return {rowCount:user?1:0,rows:user?[user]:[]};
   }
   if(q.startsWith("SELECT id,recovery_hash")){
    const user=users.get(params[0]);return {rowCount:user?1:0,rows:user?[user]:[]};
+  }
+  if(q.startsWith("SELECT COUNT(*)::int AS total FROM quadra_accounts"))return {rowCount:1,rows:[{total:users.size}]};
+  if(q.startsWith("SELECT a.id,a.handle,a.role,a.created_at,a.banned_at")){
+   const records=[...users.values()].map(a=>({...a,active_session:[...sessions.values()].includes(a.id)}));
+   return {rowCount:records.length,rows:records};
+  }
+  if(q.startsWith("SELECT id,handle,role FROM quadra_accounts WHERE id=")){
+   const user=[...users.values()].find(x=>x.id===params[0]);return {rowCount:user?1:0,rows:user?[user]:[]};
+  }
+  if(q.startsWith("UPDATE quadra_accounts SET banned_at")){
+   const user=[...users.values()].find(x=>x.id===params[1]);
+   if(user)user.banned_at=params[0];return {rowCount:user?1:0,rows:[]};
   }
   if(q.startsWith("UPDATE quadra_accounts")){
    const user=[...users.values()].find(x=>x.id===params[3]);
@@ -101,4 +113,25 @@ test("account endpoints stay unavailable without durable storage",async()=>{
  assert.equal(auth.enabled,false);
  assert.equal(await auth.verify("z".repeat(43)),null);
  await assert.rejects(auth.register({username:"coolplayer",password:PASSWORD}),/unavailable/);
+});
+
+test("superuser authority is server-verified, reversible bans revoke sessions and block sign-in",async()=>{
+ const store=mockStore(),auth=createAuth(store);await auth.init();
+ const adminLogin=await auth.register({username:"chessowner",password:PASSWORD});
+ const userLogin=await auth.register({username:"ordinaryplayer",password:PASSWORD});
+ store.users.get("chessowner").role="superuser";
+ const admin=await auth.verify(adminLogin.token),user=await auth.verify(userLogin.token);
+ assert.equal(admin.role,"superuser");
+ await assert.rejects(auth.setBan(user,admin.id,true),/Superuser permission/);
+ await assert.rejects(auth.setBan(admin,admin.id,true),/Cannot suspend a superuser/);
+ await auth.setBan(admin,user.id,true);
+ assert.equal((await auth.listAccounts()).find(x=>x.id===user.id).banned,true);
+ assert.equal(await auth.verify(userLogin.token),null);
+ await assert.rejects(auth.login({username:"ordinaryplayer",password:PASSWORD}),/suspended/);
+ await assert.rejects(auth.recover({username:"ordinaryplayer",recoveryCode:userLogin.recoveryCode,newPassword:PASSWORD}),/suspended/);
+ await auth.setBan(admin,user.id,false);
+ assert.equal((await auth.listAccounts()).find(x=>x.id===user.id).banned,false);
+ const loginAgain=await auth.login({username:"ordinaryplayer",password:PASSWORD});
+ assert.equal((await auth.verify(loginAgain.token)).username,"ordinaryplayer");
+ assert.equal(await auth.countAccounts(),2);
 });
