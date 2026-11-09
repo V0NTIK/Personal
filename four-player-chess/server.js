@@ -214,12 +214,7 @@ async function handleRematch(r,seat,ws){
   votes[seat]=true;const t=now();
   let next={...r,rematch:votes,updated:t};
   if(votes.every(Boolean)){
-   const archive={gameNo:r.gameNo,winner:r.game.winner,mode:r.game.mode,clock:r.clock.preset,
-    endedAt:t,moves:r.game.moves.map(m=>({...m})),events:r.events};
-   next={...next,game:variants.createGame(r.variant,engine),clock:Clock.create(r.clock.preset==="custom"?{type:"custom",minutes:r.clock.initialMs/60000,incrementSeconds:r.clock.incrementMs/1000}:r.clock.preset),
-    rev:r.rev+1,rematch:[false,false,false,false],drawVotes:[false,false,false,false],started:true,seatReady:[true,true,true,true],
-    archives:[...r.archives,archive].slice(-8),events:[],gameNo:r.gameNo+1};
-   Clock.start(next.clock,t);
+   next=nextRound(r,{automatic:true});
   }
   try{await commitRoom(r,next);}catch(e){emit(ws,{type:"error",error:"Could not save rematch vote."});}
  });
@@ -290,6 +285,101 @@ function sendArchive(r,gameNo,ws){
  const a=r.archives.find(x=>x.gameNo===gameNo);
  if(!a)return emit(ws,{type:"error",error:"Archived game not found."});
  emit(ws,{type:"archive",archive:{...a}});
+}
+function spectatorAuthorized(r,key){
+ if(r.visibility==="public")return true;
+ if(typeof key!=="string"||key.length!==43||!r.spectatorHash)return false;
+ const hashed=sha(key);
+ return hashed.length===r.spectatorHash.length&&crypto.timingSafeEqual(Buffer.from(hashed),Buffer.from(r.spectatorHash));
+}
+function watchRoom(ws,msg){
+ if(msg?.type!=="watch"||typeof msg.room!=="string")return false;
+ const room=rooms.get(msg.room.toUpperCase());
+ if(!room||!spectatorAuthorized(room,msg.key))return false;
+ if((room.spectators?.size||0)>=25){emit(ws,{type:"error",error:"The room's spectator capacity is full."});return false;}
+ room.spectators??=new Set();
+ room.spectators.add(ws);ws.room=room;ws.seat=-1;ws.spectator=true;
+ emit(ws,{type:"welcome",room:room.id,seat:null,spectator:true,protocol:4});
+ broadcast(room);return true;
+}
+async function handleRoomChat(r,ws,msg){
+ const account=ws.sessionUser;
+ if(ws.spectator||!account||r.seats[ws.seat]?.userId!==account.id)return emit(ws,{type:"error",error:"Sign in as a seated player to use room chat."});
+ await lockRoom(r,async()=>{
+  try{
+   const messages=Social.appendMessage(r,account,msg.text,ws.seat,now());
+   const validIds=new Set(messages.map(m=>m.id));
+   const reports=Object.fromEntries(Object.entries(r.reports||{}).filter(([id])=>validIds.has(id)));
+   await commitRoom(r,{...r,messages,reports,updated:now()});
+  }catch(e){emit(ws,{type:"error",error:e.message});}
+ });
+}
+async function handleChatReport(r,ws,msg){
+ const account=ws.sessionUser;
+ if(!account||ws.spectator||r.seats[ws.seat]?.userId!==account.id)return emit(ws,{type:"error",error:"Only signed-in room participants can report messages."});
+ await lockRoom(r,async()=>{
+  try{
+   const result=Social.reportMessage(r,msg.id,account.id);
+   await commitRoom(r,{...r,messages:result.messages,reports:result.reports,updated:now()});
+   emit(ws,{type:"notice",message:"Report received. Thank you."});
+  }catch(e){emit(ws,{type:"error",error:e.message});}
+ });
+}
+async function handleModeration(r,ws,msg){
+ const account=ws.sessionUser;
+ if(!account||ws.spectator)return emit(ws,{type:"error",error:"Host account required."});
+ await lockRoom(r,async()=>{
+  try{
+   const result=Social.moderate(r,account.id,msg.id||msg.target,msg.action);
+   await commitRoom(r,{...r,messages:result.messages,mutedUsers:result.mutedUsers,updated:now()});
+  }catch(e){emit(ws,{type:"error",error:e.message});}
+ });
+}
+function nextRound(r,{automatic=false}={}){
+ const game=variants.createGame(r.variant,engine);
+ const clock=Clock.create(r.clock.preset==="custom"?{type:"custom",minutes:r.clock.initialMs/60000,incrementSeconds:r.clock.incrementMs/1000}:r.clock.preset);
+ const archive={gameNo:r.gameNo,winner:r.game.winner,mode:r.game.mode,clock:r.clock.preset,endedAt:now(),
+  moves:r.game.moves.map(m=>({...m})),events:r.events};
+ const next={...r,game,clock,rev:r.rev+1,started:automatic,seatReady:automatic?[true,true,true,true]:[false,false,false,false],
+  rematch:[false,false,false,false],drawVotes:[false,false,false,false],
+  archives:[...r.archives,archive].slice(-8),events:[],gameNo:r.gameNo+1,updated:now()};
+ if(automatic)Clock.start(next.clock,next.updated);
+ return next;
+}
+async function handleNewRound(r,ws){
+ await lockRoom(r,async()=>{
+  if(!r.game.winner)return emit(ws,{type:"error",error:"Finish the current match first."});
+  if(ws.spectator||ws.seat!==r.hostSeat)return emit(ws,{type:"error",error:"Only the room host can open the next round."});
+  try{await commitRoom(r,nextRound(r));}
+  catch(e){emit(ws,{type:"error",error:"Could not create the next round."});}
+ });
+}
+async function rotateSpectatorKey(r,ws){
+ if(ws.spectator||ws.seat!==r.hostSeat)return emit(ws,{type:"error",error:"Host permission required."});
+ await lockRoom(r,async()=>{
+  const key=token();
+  try{
+   await commitRoom(r,{...r,spectatorHash:sha(key),updated:now()});
+   for(const spectator of r.spectators||[])spectator.close(4009,"Spectator link changed");
+   emit(ws,{type:"spectator-key",key});
+  }catch(e){emit(ws,{type:"error",error:"Could not update spectator link."});}
+ });
+}
+function publicRoomSummary(r,ratings){
+ const users=r.seats.map(s=>s?.userId).filter(Boolean);
+ const numeric=users.map(id=>ratings?.get(id)?.rating||1200);
+ return {room:r.id,title:r.title||"Quadra room",mode:r.game.mode,visibility:r.visibility,
+ rated:!!r.rated,gameNo:r.gameNo,started:r.started,finished:!!r.game.winner,
+ players:r.seats.filter(Boolean).length,connected:r.seats.filter(s=>s?.ws?.readyState===WebSocket.OPEN).length,
+ spectatorCount:r.spectators?.size||0,averageRating:numeric.length?Math.round(numeric.reduce((a,b)=>a+b,0)/numeric.length):null,
+ variant:r.variant,clock:r.clock.preset,updated:r.updated};
+}
+async function listPublicRooms(){
+ const items=[...rooms.values()].filter(r=>r.visibility==="public").slice(0,100);
+ const ids=[...new Set(items.flatMap(r=>r.seats.map(s=>s?.userId).filter(Boolean)))];
+ const [ffa,teams]=await Promise.all([community.ratings(ids,"ffa"),community.ratings(ids,"teams")]);
+ return items.map(r=>publicRoomSummary(r,r.game.mode==="teams"?teams:ffa))
+  .sort((a,b)=>(b.players>0?1:0)-(a.players>0?1:0)||b.players-a.players||b.updated-a.updated);
 }
 function requestToken(req){
  const hdr=req.headers.authorization;
