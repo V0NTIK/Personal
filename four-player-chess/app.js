@@ -86,6 +86,36 @@ function switchLocation(name){
  $("onlineControls").classList.toggle("hidden",name!=="online");
  updateRoom();
 }
+const CLOCK_NAMES={untimed:"Unlimited",blitz5:"5 min",rapid10:"10 min",rapid15:"15 min + 10 sec",classical30:"30 min"};
+function formattedTime(ms){
+ const sec=Math.ceil(Math.max(0,ms)/1000);
+ const minutes=Math.floor(sec/60);
+ const seconds=sec%60;
+ return minutes+":"+String(seconds).padStart(2,"0");
+}
+function liveClockMs(color){
+ const clock=online?.clock;
+ if(!clock?.remaining||!Number.isFinite(clock.remaining[color]))return null;
+ let value=clock.remaining[color];
+ if(clock.started&&clock.flag===null&&state.turn===color&&clock.activeSince!==null&&online.connected&&online.ready){
+  value-=Math.max(0,Date.now()-(online.clockReceivedAt||Date.now()));
+ }
+ return Math.max(0,value);
+}
+function updateTimers(){
+ if(!online?.clock?.remaining)return;
+ for(let c=0;c<4;c++){
+  const item=playersEl.children[c];if(!item)continue;
+  const el=item.querySelector?.(".clock-time")||item.children?.find?.(node=>node.className==="clock-time");
+  if(!el)continue;
+  const remaining=liveClockMs(c);
+  if(remaining===null)continue;
+  el.textContent=formattedTime(remaining);
+  item.classList.toggle("clock-critical",remaining<=30000&&state.alive[c]);
+  item.classList.toggle("clock-flagged",remaining<=0);
+ }
+}
+
 function initialsMaterial(s,c){
  let n=0,pieces=0;
  for(const p of s.b)if(p&&p.c===c){n+=score[p.p];pieces++;}
@@ -105,7 +135,9 @@ function renderPlayers(g){
   const teamName=g.mode==="teams"?" · Team "+(team(c)+1):"";
   const status=online?.seats?.[c]?.claimed?(online.seats[c].online?" · Online":" · Away"):"";
   info.textContent=g.alive[c]?material.pieces+" pcs · "+material.n+" pts"+teamName+status:"Eliminated";
-  el.append(name,info);playersEl.append(el);
+  el.append(name,info);
+  if(online?.clock?.remaining){const timer=document.createElement("strong");timer.className="clock-time";timer.textContent=formattedTime(liveClockMs(c));el.append(timer);}
+  playersEl.append(el);
  }
 }
 function viewCoordToSquare(col,row){
@@ -162,7 +194,7 @@ function renderStatus(g){
  else primary=names[g.turn]+" to move"+(check?" · Check":"");
  $("status").textContent=primary;
  const format=g.mode==="teams"?"Teams":"Free-for-all";
- $("statusSecondary").textContent=(online?"Online room "+online.room:"Local game")+" · "+format+(viewing?" · Replay":"");
+ $("statusSecondary").textContent=(online?"Online room "+online.room:"Local game")+" · "+format+(online?" · "+(CLOCK_NAMES[online.clockPreset]||"Unlimited"):"")+(viewing?" · Replay":"");
  $("currentRound").textContent="ROUND "+g.round;
  $("statusDot").className="status-dot"+(g.winner?" is-finished":online&&(!online.connected||!online.ready)?" is-waiting":"");
  let hint="Select a piece, then a highlighted square.";
@@ -204,6 +236,9 @@ function updateRoom(){
  $("resumeRoom").classList.toggle("hidden",connected||!sessionCredentials());
  if(!connected)return;
  $("roomId").textContent=online.room;
+ $("roomClockName").textContent=CLOCK_NAMES[online.clockPreset]||"Unlimited";
+ $("roomStorage").textContent=online.persistent?"Database · beta":"Temporary memory";
+ $("storageNotice").textContent=online.persistent?"Beta database storage is enabled. This free database expires December 9, 2026; export important games.":"This server currently stores rooms in memory. Games may disappear when it restarts.";
  $("rematchControls").classList.toggle("hidden",!state.winner);
  if(state.winner){const votes=(online.rematch||[]).filter(Boolean).length;$("rematchVotes").textContent=votes+" / 4 players ready to restart";$("rematchRoom").disabled=!!online.rematch?.[online.seat]||!online.connected;$("rematchRoom").textContent=online.rematch?.[online.seat]?"Rematch vote sent":"Vote for rematch";}
  $("mySeat").textContent=names[online.seat];
@@ -220,7 +255,7 @@ function updateRoom(){
 }
 function render(){
  const g=viewState();
- renderPlayers(g);renderBoard(g);renderStatus(g);renderHistory();
+ renderPlayers(g);renderBoard(g);renderStatus(g);renderHistory();updateTimers();
  $("undo").disabled=!!online||reviewing()||stack.length===0;
  $("mode").disabled=!!online;
  $("mode").value=state.mode;
@@ -312,7 +347,7 @@ function connectRoom(data){
  if(online)return;
  saveAuto();
  backup={state:clone(state),stack:stack.map(clone),orientation};
- const s={room:data.room,seat:data.seat,token:data.token,ws:null,rev:0,ready:false,connected:false,awaiting:false,rematch:[false,false,false,false],seats:[{},{},{},{}],attempts:0,closed:false};
+ const s={room:data.room,seat:data.seat,token:data.token,ws:null,rev:0,ready:false,connected:false,awaiting:false,rematch:[false,false,false,false],seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
  online=s;playLocation="online";reviewIndex=null;selected=-1;targets=[];pending=null;orientation=s.seat;
  try{sessionStorage.setItem(ROOM_KEY,JSON.stringify({room:s.room,seat:s.seat,token:s.token}));}catch(e){}
  switchLocation("online");switchPanel("play");render();
@@ -328,7 +363,7 @@ function connectRoom(data){
    if(msg.type==="welcome"){s.connected=true;s.attempts=0;onlineMessage("Connected as "+names[s.seat]+".");render();return;}
    if(msg.type==="error"){s.awaiting=false;onlineMessage("Server: "+msg.error);render();return;}
    if(msg.type==="state"){
-    s.rev=msg.revision;s.seats=msg.seats||s.seats;s.rematch=msg.rematch||s.rematch;s.ready=!!msg.ready;s.awaiting=false;
+    s.rev=msg.revision;s.seats=msg.seats||s.seats;s.rematch=msg.rematch||s.rematch;s.ready=!!msg.ready;s.awaiting=false;s.clock=msg.clock||null;s.clockReceivedAt=Date.now();s.persistent=!!msg.persistent;s.variant=msg.variant||s.variant; if(s.clock)s.clockPreset=s.clock.preset;
     if(safeState(msg.game))state=msg.game;
     selected=-1;targets=[];render();
     onlineMessage(s.ready?"Ready · "+s.seats.filter(v=>v.online).length+" players connected":"Lobby · "+s.seats.filter(v=>v.claimed).length+" of 4 seats claimed");
@@ -362,7 +397,7 @@ async function enterRoom(which){
  try{
   const room=$("roomInput").value.trim().toUpperCase();
   if(which==="join"&&!/^[A-F0-9]{7}$/.test(room))throw Error("Enter a valid seven-character room code.");
-  const data=which==="create"?await roomRequest("/api/rooms",{mode:$("onlineFormat").value}):await roomRequest("/api/rooms/"+room+"/join",{});
+  const data=which==="create"?await roomRequest("/api/rooms",{mode:$("onlineFormat").value,clock:$("onlineClock").value}):await roomRequest("/api/rooms/"+room+"/join",{});
   connectRoom(data);tell("Private room joined.");
  }catch(e){onlineMessage(e.name==="AbortError"?"Server did not respond. Please try again.":"Unable to join: "+e.message);}
  finally{button.disabled=!!online;}
@@ -421,6 +456,7 @@ function bind(){
  });
  window.addEventListener("beforeunload",()=>{if(!online)saveAuto();});
  setInterval(()=>{if(online?.ws?.readyState===WebSocket.OPEN)online.ws.send(JSON.stringify({type:"ping"}));},25000);
+ setInterval(updateTimers,300);
 }
 function init(){
  try{const old=JSON.parse(localStorage.getItem(PREFS_KEY)||"null");if(old&&typeof old==="object")prefs={...initialPrefs,...old};}catch(e){}
