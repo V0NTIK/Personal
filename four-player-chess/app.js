@@ -66,15 +66,28 @@ function updateTheme(){
  $("showCoords").checked=prefs.coords!==false;
  $("autoRotate").checked=!!prefs.follow;
 }
-const PANELS=["rooms","play","moves","review","community","settings","rules","account","admin"];
-function switchPanel(name,scroll=false){
- if(name!=="home"&&!PANELS.includes(name))return;
+const PANELS=["rooms","local","create","play","moves","review","community","settings","rules","account","admin"];
+const ROOM_SCREENS=new Set(["waiting","play","moves","review"]);
+function roomScreen(){return online?(online.ready?"play":"waiting"):"create";}
+function switchPanel(requested,scroll=false){
+ let name=requested==="room"?roomScreen():requested;
+ if(name==="play"&&!online)name="local";
+ if(online&&!online.ready&&["play","moves","review"].includes(name))name="waiting";
+ if(name==="waiting"&&!online)name="create";
+ if(name==="local"&&online){tell("Leave your current room before starting a local game.");return;}
+ if(name==="create"&&online){tell("Leave your current room before creating or joining another.");return;}
+ if(name!=="home"&&name!=="waiting"&&!PANELS.includes(name))return;
  if(name==="admin"&&window.QuadraAccount?.role?.()!=="superuser"){tell("Superuser sign-in required.");return;}
  activePanel=name;
- $("homeScreen").classList.toggle("hidden",name!=="home");
- $("workLayout").classList.toggle("hidden",name==="home");
- const showArena=["play","moves","review"].includes(name);
- $("arena").classList.toggle("hidden",!showArena);
+ const isHome=name==="home",isWaiting=name==="waiting",isMatch=["play","moves","review"].includes(name)&&!!online;
+ const boardVisible=name==="local"||["play","moves","review"].includes(name);
+ $("homeScreen").classList.toggle("hidden",!isHome);
+ $("waitingRoomScreen").classList.toggle("hidden",!isWaiting);
+ $("workLayout").classList.toggle("hidden",isHome||isWaiting);
+ $("arena").classList.toggle("hidden",!boardVisible);
+ $("gameNavigation").classList.toggle("hidden",!boardVisible);
+ $("arenaTitle").textContent=isMatch?"Online match":"Local four-player chess";
+ $("arenaSubtitle").textContent=isMatch?"Live board · "+(online?.room||"Room"):"Pass & play on one board";
  if(document.body?.dataset)document.body.dataset.screen=name;
  for(const id of PANELS){
   const active=id===name;
@@ -82,12 +95,18 @@ function switchPanel(name,scroll=false){
   $("tab-"+id).setAttribute("aria-selected",String(active));
   $("tab-"+id).tabIndex=active?0:-1;
  }
- const headers={home:"headerHome",rooms:"headerRooms",play:"headerPlay",moves:"headerPlay",
-  review:"headerPlay",community:"headerLeaders",rules:"headerHelp",settings:"headerSettings",account:"headerAccount",admin:"headerAdmin"};
- for(const id of ["headerHome","headerRooms","headerPlay","headerLeaders","headerHelp","headerSettings","headerAccount","headerAdmin"]){
-  $(""+id).setAttribute("aria-current",headers[name]===id?"page":"false");
+ const details=$("roomDetails"),target=isWaiting?$("waitingRoomContent"):$("onlineControls");
+ if(target&&details&&details.parentElement!==target)target.append(details);
+ $("headerRoom").classList.toggle("hidden",!online);
+ $("headerRoom").textContent=online?"My room · "+online.room:"My room";
+ const headers={home:"headerHome",rooms:"headerRooms",local:"headerPlay",create:"headerCreate",
+  waiting:"headerRoom",play:isMatch?"headerRoom":"headerPlay",
+  moves:isMatch?"headerRoom":"headerPlay",review:isMatch?"headerRoom":"headerPlay",
+  community:"headerLeaders",rules:"headerHelp",settings:"headerSettings",account:"headerAccount",admin:"headerAdmin"};
+ for(const id of ["headerHome","headerRooms","headerPlay","headerCreate","headerRoom","headerLeaders","headerHelp","headerSettings","headerAccount","headerAdmin"]){
+  $(id).setAttribute("aria-current",headers[name]===id?"page":"false");
  }
- for(const [id,dest] of [["navGame","play"],["navMoves","moves"],["navReview","review"]]){
+ for(const [id,dest] of [["navGame",isMatch?"play":"local"],["navMoves","moves"],["navReview","review"]]){
   $(id).setAttribute("aria-current",name===dest?"page":"false");
  }
  if(name==="home")window.QuadraCommunity?.loadStats?.();
@@ -95,18 +114,16 @@ function switchPanel(name,scroll=false){
  if(name==="community")window.QuadraCommunity?.loadLeaders?.();
  if(name==="review")window.QuadraCommunity?.refreshReview?.();
  if(name==="admin")window.QuadraAccount?.refreshAdmin?.();
- if(scroll&&window.matchMedia&&window.matchMedia("(max-width: 940px)").matches){
-  (showArena?$("arena"):$("controls")).scrollIntoView({behavior:"smooth",block:"start"});
+ if(scroll&&window.matchMedia?.("(max-width: 940px)").matches){
+  (isWaiting?$("waitingRoomScreen"):boardVisible?$("arena"):$("controls")).scrollIntoView({behavior:"smooth",block:"start"});
  }
 }
 function switchLocation(name){
- if(name==="local"&&online){tell("Leave your online room to return to local play.");return;}
- playLocation=name;
- $("localMode").setAttribute("aria-pressed",String(name==="local"));
- $("onlineMode").setAttribute("aria-pressed",String(name==="online"));
- $("localControls").classList.toggle("hidden",name!=="local");
- $("onlineControls").classList.toggle("hidden",name!=="online");
- updateRoom();
+ if(name==="local"){
+  if(online){tell("Leave your room before local play.");return;}
+  playLocation="local";switchPanel("local");return;
+ }
+ if(name==="online"){playLocation="online";switchPanel(roomScreen());}
 }
 const CLOCK_NAMES={untimed:"Unlimited",bullet1:"1 min",bullet1inc:"1 | 1",bullet2inc:"2 | 1",
  blitz3:"3 min",blitz3inc:"3 | 2",blitz5:"5 min",blitz5inc:"5 | 5",rapid10:"10 min",rapid10inc:"10 | 5",
