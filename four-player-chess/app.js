@@ -696,77 +696,138 @@ function sessionCredentials(){
   return v&&typeof v.room==="string"&&/^[A-F0-9]{7}$/.test(v.room)&&Number.isInteger(v.seat)&&v.seat>=0&&v.seat<4&&((typeof v.token==="string"&&v.token.length>=32)||(v.token===null&&!!window.QuadraAccount?.token()))?v:null;
  }catch(e){return null;}
 }
-function connectRoom(data){
- if(online)return;
- saveAuto();
- backup={state:clone(state),stack:stack.map(clone),orientation};
- const s={room:data.room,seat:data.seat??null,token:data.token||null,spectator:!!data.spectator,watchKey:data.watchKey||null,
- spectatorKey:data.spectatorKey||null,visibility:data.visibility||"private",rated:!!data.rated,hostSeat:0,
- messages:[],spectators:[],spectatorCount:0,ws:null,rev:0,ready:false,filled:false,seatReady:[false,false,false,false],title:data.title||"",clockSettings:data.clockSettings||null,connected:false,awaiting:false,rematch:[false,false,false,false],drawVotes:[false,false,false,false],events:null,replayStates:null,archives:[],gameNo:1,seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
- online=s;playLocation="online";reviewIndex=null;selected=-1;targets=[];pending=null;orientation=s.spectator?0:s.seat;
- if(!s.spectator)try{sessionStorage.setItem(ROOM_KEY,JSON.stringify({room:s.room,seat:s.seat,token:s.token,spectatorKey:s.spectatorKey}));}catch(e){}
- switchPanel("waiting");render();
+function connectRoom(data,options={}){
+ const room=String(data.room||"").toUpperCase();
+ if(!/^[A-F0-9]{7}$/.test(room))return tell("Invalid room code.");
+ const existing=roomSessions.get(room),spectator=!!data.spectator;
+ if(existing){
+  if(existing.spectator&&!spectator)dismissRoomSession(existing);
+  else {activateRoom(room);return;}
+ }
+ if(roomSessions.size>=MAX_ACTIVE_ROOMS)return tell("Maximum "+MAX_ACTIVE_ROOMS+" open rooms per browser tab. Leave a room before adding another.");
+ if(roomSessions.size===0&&!backup){
+  saveAuto();
+  backup={state:clone(state),stack:stack.map(clone),orientation};
+ }
+ const accountBound=!!data.accountBound||(!spectator&&!!window.QuadraAccount?.token?.())||
+  (spectator&&!!window.QuadraAccount?.token?.());
+ const s={room,seat:data.seat??null,token:data.token||null,spectator,watchKey:data.watchKey||null,
+  spectatorKey:data.spectatorKey||null,visibility:data.visibility||"private",rated:!!data.rated,hostSeat:0,
+  messages:[],spectators:[],spectatorCount:0,ws:null,rev:0,ready:false,filled:false,
+  seatReady:[false,false,false,false],title:data.title||"",clockSettings:data.clockSettings||null,
+  connected:false,awaiting:false,rematch:[false,false,false,false],drawVotes:[false,false,false,false],
+  events:null,replayStates:null,archives:[],gameNo:1,seats:[{},{},{},{}],attempts:0,closed:false,
+  clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,
+  variant:data.variant||null,cachedGame:fresh("ffa"),retryTimer:null,displaced:false,
+  accountBound,lastFocus:undefined,lastError:null,leaving:false};
+ roomSessions.set(room,s);
+ s.reconnect=socketConnect;
+ if(options.activate!==false)activateRoom(room);
+ else{renderRoomManager();saveRoomRegistry();}
  function socketConnect(){
-  if(online!==s||s.closed)return;
-  onlineMessage("Connecting securely to room "+s.room+"…");
+  if(roomSessions.get(s.room)!==s||s.closed)return;
+  if(s.retryTimer){clearTimeout(s.retryTimer);s.retryTimer=null;}
+  if(online===s)onlineMessage("Connecting to "+s.room+"…");
   let ws;
-  try{ws=new WebSocket(API.replace(/^http/,"ws")+"/ws");}catch(e){onlineMessage("Unable to start the connection.");return;}
-  s.ws=ws;
-  ws.onopen=()=>{if(online===s)ws.send(JSON.stringify(s.spectator?{type:"watch",room:s.room,key:s.watchKey,session:window.QuadraAccount?.token()||null}:
-    {type:"hello",room:s.room,seat:s.seat,token:s.token,session:window.QuadraAccount?.token()||null}));};
+  try{ws=new WebSocket(API.replace(/^http/,"ws")+"/ws");}
+  catch(e){s.lastError="Cannot open connection.";renderRoomManager();return;}
+  s.ws=ws;s.connected=false;
+  ws.onopen=()=>{
+   if(roomSessions.get(s.room)!==s||s.closed)return;
+   ws.send(JSON.stringify(s.spectator?
+    {type:"watch",room:s.room,key:s.watchKey,session:window.QuadraAccount?.token?.()||null}:
+    {type:"hello",room:s.room,seat:s.seat,token:s.token,session:window.QuadraAccount?.token?.()||null}));
+  };
   ws.onmessage=event=>{
-   if(online!==s)return;let msg;try{msg=JSON.parse(event.data);}catch(e){return;}
-   if(msg.type==="welcome"){s.connected=true;s.attempts=0;onlineMessage(s.spectator?"Watching the room in read-only mode.":"Connected as "+names[s.seat]+".");render();return;}
-   if(msg.type==="error"){s.awaiting=false;onlineMessage("Server: "+msg.error);render();return;}
-   if(msg.type==="vacated"){leaveRoom(true);return;}
-   if(msg.type==="room-closed"){const message=msg.message||"Room closed.";leaveRoom(true);tell(message);return;}
-   if(msg.type==="notice"){tell(msg.message||"Update received.");return;}
+   if(roomSessions.get(s.room)!==s||s.closed)return;
+   let msg;try{msg=JSON.parse(event.data);}catch(e){return;}
+   if(msg.type==="welcome"){
+    s.connected=true;s.displaced=false;s.attempts=0;s.lastError=null;s.lastFocus=undefined;
+    updateFocus();renderRoomManager();
+    if(online===s){onlineMessage(s.spectator?"Spectating "+s.room+" (read only).":"Connected as "+names[s.seat]+".");render();}
+    return;
+   }
+   if(msg.type==="error"){
+    s.awaiting=false;s.leaving=false;s.lastError=msg.error||"Server rejected request.";
+    if(online===s){onlineMessage("Server: "+s.lastError);render();}
+    renderRoomManager();return;
+   }
+   if(msg.type==="vacated"){dismissRoomSession(s);return;}
+   if(msg.type==="room-closed"){dismissRoomSession(s,msg.message||"Room closed.");return;}
+   if(msg.type==="notice"){
+    if(online===s)tell(msg.message||"Room updated.");
+    return;
+   }
    if(msg.type==="spectator-key"&&typeof msg.key==="string"){
-    s.spectatorKey=msg.key;
-    try{sessionStorage.setItem(ROOM_KEY,JSON.stringify({room:s.room,seat:s.seat,token:s.token,spectatorKey:s.spectatorKey}));}catch(e){}
-    tell("New private spectator link is ready to copy.");render();return;
+    s.spectatorKey=msg.key;saveRoomRegistry();
+    if(online===s){tell("New private spectator link ready to copy.");render();}
+    return;
    }
    if(msg.type==="archive"&&msg.archive){
     const a=msg.archive;
     downloadRecord({format:"quadra-chess-game",version:1,room:s.room,variant:s.variant,
-      gameNo:a.gameNo,mode:a.mode,result:a.winner,moves:a.moves,events:a.events,endedAt:a.endedAt},
-      "quadra-"+s.room+"-game-"+a.gameNo+".json");return;
+     gameNo:a.gameNo,mode:a.mode,result:a.winner,moves:a.moves,events:a.events,endedAt:a.endedAt},
+     "quadra-"+s.room+"-game-"+a.gameNo+".json");
+    return;
    }
    if(msg.type==="state"){
     s.rev=msg.revision;s.seats=msg.seats||s.seats;
-    s.visibility=msg.visibility||s.visibility;s.rated=!!msg.rated;s.hostSeat=Number.isInteger(msg.hostSeat)?msg.hostSeat:s.hostSeat;
-    s.messages=Array.isArray(msg.messages)?msg.messages:s.messages;s.spectatorCount=msg.spectatorCount||0;s.spectators=Array.isArray(msg.spectators)?msg.spectators:[];
-    s.seatReady=msg.seatReady||s.seatReady;s.filled=!!msg.filled;s.title=msg.title||s.title;s.rematch=msg.rematch||s.rematch;s.drawVotes=msg.drawVotes||s.drawVotes;
-    s.archives=msg.archives||[];s.gameNo=msg.gameNo||1;s.events=msg.events;s.ready=!!msg.ready;s.awaiting=false;s.clock=msg.clock||null;s.clockSettings=msg.clock||s.clockSettings;s.clockReceivedAt=Date.now();s.persistent=!!msg.persistent;s.variant=msg.variant||s.variant; if(s.clock)s.clockPreset=s.clock.preset;
-    if(safeState(msg.game))state=msg.game;
-    $("hostRoomTitle").value=s.title||"";
-    $("hostRoomVisibility").value=s.visibility;
-    $("hostRoomRated").checked=s.rated;
-    $("hostRoomFormat").value=state.mode;
-    $("hostRoomClock").value=s.clockPreset||"untimed";
-    if($("hostRoomClock").value!==s.clockPreset)$("hostRoomClock").value="custom";
-    if(s.clockPreset==="custom"){
-     $("hostCustomMinutes").value=String(Math.round((s.clockSettings?.initialMs||300000)/60000));
-     $("hostCustomIncrement").value=String(Math.round((s.clockSettings?.incrementMs||0)/1000));
+    s.visibility=msg.visibility||s.visibility;s.rated=!!msg.rated;
+    s.hostSeat=Number.isInteger(msg.hostSeat)?msg.hostSeat:s.hostSeat;
+    s.messages=Array.isArray(msg.messages)?msg.messages:s.messages;
+    s.spectatorCount=msg.spectatorCount||0;s.spectators=Array.isArray(msg.spectators)?msg.spectators:[];
+    s.seatReady=msg.seatReady||s.seatReady;s.filled=!!msg.filled;
+    s.title=msg.title||s.title;s.rematch=msg.rematch||s.rematch;s.drawVotes=msg.drawVotes||s.drawVotes;
+    s.archives=msg.archives||[];s.gameNo=msg.gameNo||1;s.events=msg.events;
+    s.ready=!!msg.ready;s.awaiting=false;s.clock=msg.clock||null;s.clockSettings=msg.clock||s.clockSettings;
+    s.clockReceivedAt=Date.now();s.persistent=!!msg.persistent;s.variant=msg.variant||s.variant;
+    if(s.clock)s.clockPreset=s.clock.preset;
+    if(safeState(msg.game))s.cachedGame=msg.game;
+    const positions=window.QuadraReplay?.replay(s.events,s.cachedGame.mode,E);
+    s.replayStates=positions&&positions.length===s.cachedGame.moves.length+1?positions:null;
+    if(online===s){
+     state=clone(s.cachedGame);
+     $("hostRoomTitle").value=s.title||"";
+     $("hostRoomVisibility").value=s.visibility;
+     $("hostRoomRated").checked=s.rated;
+     $("hostRoomFormat").value=state.mode;
+     $("hostRoomClock").value=s.clockPreset||"untimed";
+     if($("hostRoomClock").value!==s.clockPreset)$("hostRoomClock").value="custom";
+     if(s.clockPreset==="custom"){
+      $("hostCustomMinutes").value=String(Math.round((s.clockSettings?.initialMs||300000)/60000));
+      $("hostCustomIncrement").value=String(Math.round((s.clockSettings?.incrementMs||0)/1000));
+     }
+     $("hostCustomTime").classList.toggle("hidden",$("hostRoomClock").value!=="custom");
+     reviewIndex=null;selected=-1;targets=[];render();
+     if(s.ready&&activePanel==="waiting")switchPanel("play");
+     else if(!s.ready&&["play","moves","review"].includes(activePanel))switchPanel("waiting");
+     window.QuadraCommunity?.refreshReview?.();
+     onlineMessage(s.ready?"Match underway · "+s.seats.filter(v=>v.online).length+" connected":
+      "Waiting · "+s.seats.filter(v=>v.claimed).length+"/4 seats · "+s.seatReady.filter(Boolean).length+"/4 ready");
     }
-    $("hostCustomTime").classList.toggle("hidden",$("hostRoomClock").value!=="custom");
-    const positions=window.QuadraReplay?.replay(s.events,state.mode,E);
-    s.replayStates=positions&&positions.length===state.moves.length+1?positions:null;
-    reviewIndex=null;selected=-1;targets=[];render();
-    if(s.ready&&activePanel==="waiting")switchPanel("play");
-    else if(!s.ready&&["play","moves","review"].includes(activePanel))switchPanel("waiting");
-    window.QuadraCommunity?.refreshReview?.();
-    onlineMessage(s.ready?"Game started · "+s.seats.filter(v=>v.online).length+" online":"Lobby · "+s.seats.filter(v=>v.claimed).length+"/4 seats · "+s.seatReady.filter(Boolean).length+"/4 ready");
+    renderRoomManager();saveRoomRegistry();
     return;
    }
   };
   ws.onclose=event=>{
-   if(online!==s||s.closed)return;s.connected=false;s.awaiting=false;render();
-   if(event.code===4003||event.code===4004){onlineMessage("Room no longer accessible. Returning to rooms.");leaveRoom(true);return;}
+   if(roomSessions.get(s.room)!==s||s.closed||s.ws!==ws)return;
+   s.connected=false;s.awaiting=false;s.leaving=false;s.lastFocus=undefined;
+   if(event.code===4003||event.code===4004||event.code===4009){
+    const reason=event.code===4009?"Watch link changed; request a new invitation.":
+     event.code===4004?"Room expired or deleted.":"Room credentials rejected.";
+    dismissRoomSession(s,online===s?reason:null);return;
+   }
+   if(event.code===4001){
+    s.displaced=true;s.lastError="Opened in another tab or device.";
+    if(online===s)onlineMessage("Your seat was opened in another tab. Select Open room to take it back.");
+    renderRoomManager();return;
+   }
+   if(online===s){onlineMessage("Connection interrupted · retrying…");render();}
+   renderRoomManager();
    const delay=Math.min(30000,1000*Math.pow(2,Math.min(5,s.attempts++)));
-   onlineMessage("Connection interrupted · reconnecting…");retryTimer=setTimeout(socketConnect,delay);
+   s.retryTimer=setTimeout(socketConnect,delay);
   };
-  ws.onerror=()=>onlineMessage("Network issue · reconnecting if needed.");
+  ws.onerror=()=>{s.lastError="Network interruption";if(online===s)onlineMessage("Network issue · reconnecting…");};
  }
  socketConnect();
 }
