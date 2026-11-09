@@ -599,6 +599,6 @@ function init(){
  if(resumed&&state.moves.length)tell("Your local game was restored.");
 }
 init();
-window.QuadraApp={getState:()=>state,getReviewIndex:()=>reviewIndex,changePanel:switchPanel,openRoom:connectRoom};
+window.QuadraApp={getState:()=>state,getReviewIndex:()=>reviewIndex,changePanel:switchPanel,openRoom:connectRoom,isOnline:()=>!!online,refresh:render};
 window.QuadraEngine={fresh,legal,acceptMove,finish,threatened,isCheck,valid,rotate};
 })();
