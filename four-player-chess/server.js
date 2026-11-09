@@ -54,7 +54,9 @@ const ready=r=>r.seats.every(Boolean);
 function snapshot(r){
  const t=now();
  return {type:"state",protocol:2,room:r.id,revision:r.rev,variant:r.variant,persistent:store.persistent,serverNow:t,
- ready:ready(r),rematch:r.rematch.slice(),seats:seatSummary(r),clock:Clock.visible(r.clock,r.game.turn,t),
+ ready:ready(r),rematch:r.rematch.slice(),drawVotes:r.drawVotes.slice(),events:r.events,gameNo:r.gameNo,
+ archives:r.archives.map(a=>({gameNo:a.gameNo,winner:a.winner,endedAt:a.endedAt,moveCount:a.moves.length,clock:a.clock})),
+ seats:seatSummary(r),clock:Clock.visible(r.clock,r.game.turn,t),
  game:engine.publicState(r.game)};
 }
 function emit(ws,data){if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(data));}
@@ -70,7 +72,7 @@ function lockRoom(r,fn){
 async function commitRoom(r,next){
  await store.save(next);
  r.rev=next.rev;r.game=next.game;r.variant=next.variant;r.seats=next.seats;r.clock=next.clock;
- r.rematch=next.rematch;r.updated=next.updated;
+ r.rematch=next.rematch;r.drawVotes=next.drawVotes;r.events=next.events;r.archives=next.archives;r.gameNo=next.gameNo;r.updated=next.updated;
  broadcast(r);
 }
 function chooseVariant(data){
@@ -85,7 +87,7 @@ async function createRoom(mode,clockPreset="untimed",variantId=null){
  const roomId=id(),secret=token(),t=now();
  const r={id:roomId,rev:0,variant:v.id,game:variants.createGame(v.id,engine),
   seats:[sealedSeat(secret),null,null,null],clock:Clock.create(clockPreset),rematch:[false,false,false,false],
-  created:t,updated:t,lock:Promise.resolve()};
+  created:t,updated:t,lock:Promise.resolve(),events:[],archives:[],gameNo:1,drawVotes:[false,false,false,false]};
  await store.save(r);
  rooms.set(roomId,r);
  return {room:roomId,seat:0,token:secret,revision:0,mode:v.mode,variant:v.id,clock:clockPreset,persistent:store.persistent};
@@ -125,6 +127,8 @@ async function expireTurn(r,t=now()){
  const flag=Clock.settle(current.clock,r.game.turn,t);
  if(flag===null)return false;
  current.game=engine.eliminatePlayer(r.game,flag,"time");
+ current.events=r.events&&[...r.events,{kind:"flag",player:flag}];
+ current.drawVotes=[false,false,false,false];
  current.rev=r.rev+1;
  if(current.game.winner){current.clock.started=false;current.clock.activeSince=null;}else{current.clock.flag=null;current.clock.activeSince=t;}
  await commitRoom(r,current);
@@ -142,7 +146,9 @@ async function handleMove(r,seat,msg){
    const played=engine.acceptMove(r.game,{from:msg.from,to:msg.to,promotion:msg.promotion},seat.color);
    Clock.moved(clock,seat.color,t);
    if(played.winner){clock.started=false;clock.activeSince=null;}
-   const next={...r,game:played,clock,rev:r.rev+1,updated:t};
+   const next={...r,game:played,clock,rev:r.rev+1,updated:t,
+    events:r.events&&[...r.events,{kind:"move",player:seat.color,from:msg.from,to:msg.to,...(msg.promotion?{promotion:msg.promotion}:{})}],
+    drawVotes:[false,false,false,false]};
    await commitRoom(r,next);
   }catch(e){emit(seat.ws,{type:"error",error:e.message||"Move could not be saved."});emit(seat.ws,snapshot(r));}
  });
@@ -155,12 +161,64 @@ async function handleRematch(r,seat,ws){
   votes[seat]=true;const t=now();
   let next={...r,rematch:votes,updated:t};
   if(votes.every(Boolean)){
+   const archive={gameNo:r.gameNo,winner:r.game.winner,mode:r.game.mode,clock:r.clock.preset,
+    endedAt:t,moves:r.game.moves.map(m=>({...m})),events:r.events};
    next={...next,game:variants.createGame(r.variant,engine),clock:Clock.create(r.clock.preset),
-    rev:r.rev+1,rematch:[false,false,false,false]};
+    rev:r.rev+1,rematch:[false,false,false,false],drawVotes:[false,false,false,false],
+    archives:[...r.archives,archive].slice(-8),events:[],gameNo:r.gameNo+1};
    Clock.start(next.clock,t);
   }
   try{await commitRoom(r,next);}catch(e){emit(ws,{type:"error",error:"Could not save rematch vote."});}
  });
+}
+async function handleResign(r,seat,ws){
+ await lockRoom(r,async()=>{
+  if(!ready(r)||r.game.winner||!r.game.alive[seat])return emit(ws,{type:"error",error:"You cannot resign this game."});
+  try{
+   const t=now();
+   if(await expireTurn(r,t))return emit(ws,{type:"error",error:"The turn expired before the resignation."});
+   const clock=Clock.copy(r.clock),wasTurn=r.game.turn===seat;
+   if(wasTurn&&clock.started)Clock.settle(clock,seat,t);
+   const game=engine.eliminatePlayer(r.game,seat,"resign");
+   if(game.winner){clock.started=false;clock.activeSince=null;}
+   else if(wasTurn&&clock.started)clock.activeSince=t;
+   const next={...r,game,clock,rev:r.rev+1,updated:t,
+    events:r.events&&[...r.events,{kind:"resign",player:seat}],drawVotes:[false,false,false,false]};
+   await commitRoom(r,next);
+  }catch(e){emit(ws,{type:"error",error:"Resignation could not be saved."});}
+ });
+}
+async function handleDrawVote(r,seat,ws){
+ await lockRoom(r,async()=>{
+  if(!ready(r)||r.game.winner||!r.game.alive[seat])return emit(ws,{type:"error",error:"Draw voting is unavailable."});
+  if(r.drawVotes[seat])return emit(ws,snapshot(r));
+  const t=now(),votes=r.drawVotes.slice();votes[seat]=true;
+  const agreed=r.game.alive.every((alive,i)=>!alive||votes[i]);
+  const next={...r,drawVotes:votes,updated:t};
+  if(agreed){
+   next.game=engine.concludeDraw(r.game);
+   next.clock={...Clock.copy(r.clock),started:false,activeSince:null};
+   next.rev=r.rev+1;next.events=r.events&&[...r.events,{kind:"draw"}];
+  }
+  try{await commitRoom(r,next);}catch(e){emit(ws,{type:"error",error:"Draw vote could not be saved."});}
+ });
+}
+async function handleVacate(r,seat,ws){
+ await lockRoom(r,async()=>{
+  if(ready(r))return emit(ws,{type:"error",error:"The game has started. Use Resign to withdraw, or disconnect to return later."});
+  if(!r.seats[seat]||r.seats[seat].ws!==ws)return emit(ws,{type:"error",error:"You no longer own that seat."});
+  const seats=r.seats.slice();seats[seat]=null;
+  try{
+   await commitRoom(r,{...r,seats,updated:now()});
+   emit(ws,{type:"vacated"});ws.close(1000,"Seat released");
+  }catch(e){emit(ws,{type:"error",error:"Could not release your seat. Retry when connected."});}
+ });
+}
+function sendArchive(r,gameNo,ws){
+ if(!Number.isInteger(gameNo))return emit(ws,{type:"error",error:"Invalid archive request."});
+ const a=r.archives.find(x=>x.gameNo===gameNo);
+ if(!a)return emit(ws,{type:"error",error:"Archived game not found."});
+ emit(ws,{type:"archive",archive:{...a}});
 }
 const app=http.createServer(async(req,res)=>{
  const path=(req.url||"").split("?")[0];
@@ -213,7 +271,11 @@ wss.on("connection",ws=>{
   const r=ws.room;r.updated=t;
   if(msg.type==="ping")return emit(ws,{type:"pong"});
   if(msg.type==="sync")return emit(ws,snapshot(r));
-  if(msg.type==="rematch")return void handleRematch(r,ws.seat,ws);
+  if(msg.type==="rematch")return void handleRematch(r,ws.seat,ws).catch(()=>emit(ws,{type:"error",error:"Rematch failed."}));
+  if(msg.type==="resign")return void handleResign(r,ws.seat,ws).catch(()=>emit(ws,{type:"error",error:"Resignation failed."}));
+  if(msg.type==="draw-vote")return void handleDrawVote(r,ws.seat,ws).catch(()=>emit(ws,{type:"error",error:"Draw voting failed."}));
+  if(msg.type==="vacate")return void handleVacate(r,ws.seat,ws).catch(()=>emit(ws,{type:"error",error:"Seat release failed."}));
+  if(msg.type==="archive")return sendArchive(r,msg.gameNo,ws);
   if(msg.type!=="move")return emit(ws,{type:"error",error:"Unknown action."});
   return void handleMove(r,{color:ws.seat,ws},msg);
  });
