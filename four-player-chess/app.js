@@ -20,7 +20,11 @@ function tell(message){
  if(toastTimer)clearTimeout(toastTimer);
  toastTimer=setTimeout(()=>el.classList.add("hidden"),3300);
 }
-function onlineMessage(message){$("onlineStatus").textContent=message;}
+function onlineMessage(message){
+ $("onlineStatus").textContent=message;
+ $("setupStatus").textContent=message;
+ if(activePanel==="waiting")$("waitingStatus").textContent=message;
+}
 function safeState(s){
  if(!s||!Array.isArray(s.b)||s.b.length!==N*N||!Array.isArray(s.alive)||s.alive.length!==4||!Array.isArray(s.moves)||s.moves.length>3000||!Number.isInteger(s.turn)||s.turn<0||s.turn>3||!["ffa","teams"].includes(s.mode))return false;
  return s.b.every(p=>p===null||(p&&"prnbqk".includes(p.p)&&p.p.length===1&&Number.isInteger(p.c)&&p.c>=0&&p.c<4&&typeof p.m==="boolean"));
@@ -551,7 +555,7 @@ function connectRoom(data){
  messages:[],spectators:[],spectatorCount:0,ws:null,rev:0,ready:false,filled:false,seatReady:[false,false,false,false],title:data.title||"",clockSettings:data.clockSettings||null,connected:false,awaiting:false,rematch:[false,false,false,false],drawVotes:[false,false,false,false],events:null,replayStates:null,archives:[],gameNo:1,seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
  online=s;playLocation="online";reviewIndex=null;selected=-1;targets=[];pending=null;orientation=s.spectator?0:s.seat;
  if(!s.spectator)try{sessionStorage.setItem(ROOM_KEY,JSON.stringify({room:s.room,seat:s.seat,token:s.token,spectatorKey:s.spectatorKey}));}catch(e){}
- switchLocation("online");switchPanel("play");render();
+ switchPanel("waiting");render();
  function socketConnect(){
   if(online!==s||s.closed)return;
   onlineMessage("Connecting securely to room "+s.room+"…");
@@ -599,6 +603,8 @@ function connectRoom(data){
     const positions=window.QuadraReplay?.replay(s.events,state.mode,E);
     s.replayStates=positions&&positions.length===state.moves.length+1?positions:null;
     reviewIndex=null;selected=-1;targets=[];render();
+    if(s.ready&&activePanel==="waiting")switchPanel("play");
+    else if(!s.ready&&["play","moves","review"].includes(activePanel))switchPanel("waiting");
     window.QuadraCommunity?.refreshReview?.();
     onlineMessage(s.ready?"Game started · "+s.seats.filter(v=>v.online).length+" online":"Lobby · "+s.seats.filter(v=>v.claimed).length+"/4 seats · "+s.seatReady.filter(Boolean).length+"/4 ready");
     return;
@@ -670,7 +676,7 @@ async function joinByCode(code){
  const room=String(code||"").trim().toUpperCase();
  if(!/^[A-F0-9]{7}$/.test(room)){tell("Enter the seven-character room code.");return;}
  $("roomInput").value=room;$("preferredSeat").value="";
- switchPanel("play",true);switchLocation("online");
+ switchPanel("create",true);
  await enterRoom("join");
 }
 function watchRoom(room,key=null){
@@ -699,16 +705,18 @@ function bind(){
  for(const [id,page] of [["navGame","play"],["navMoves","moves"],["navReview","review"]])$(id).addEventListener("click",()=>switchPanel(page,true));
  $("headerHome").addEventListener("click",()=>switchPanel("home",true));
  $("headerRooms").addEventListener("click",()=>switchPanel("rooms",true));
- $("headerPlay").addEventListener("click",()=>switchPanel("play",true));
+ $("headerPlay").addEventListener("click",()=>switchPanel("local",true));
+ $("headerCreate").addEventListener("click",()=>switchPanel("create",true));
+ $("headerRoom").addEventListener("click",()=>switchPanel("room",true));
  $("headerLeaders").addEventListener("click",()=>switchPanel("community",true));
  $("headerAccount").addEventListener("click",()=>switchPanel("account",true));
  $("headerAdmin").addEventListener("click",()=>switchPanel("admin",true));
  $("brandHome").addEventListener("click",e=>{e.preventDefault();switchPanel("home",true);});
  for(const [id,page] of [["homeRooms","rooms"],["homeWatch","rooms"],["homeRules","rules"]])$(id).addEventListener("click",()=>switchPanel(page,true));
- const host=()=>{switchPanel("play",true);switchLocation("online");};
- $("homeCreate").addEventListener("click",host);
- for(const id of ["homeLocal","roomsLocal"])$(id).addEventListener("click",()=>{switchPanel("play",true);switchLocation("local");});
- for(const [button,input] of [["homeJoin","homeJoinCode"],["quickJoinButton","quickJoinCode"]]){
+ $("homeCreate").addEventListener("click",()=>switchPanel("create",true));
+ $("homeJoin").addEventListener("click",()=>{switchPanel("create",true);$("quickJoinCode").focus();});
+ $("homeLocal").addEventListener("click",()=>switchPanel("local",true));
+ for(const [button,input] of [["quickJoinButton","quickJoinCode"]]){
   $(button).addEventListener("click",()=>joinByCode($(input).value));
   $(input).addEventListener("input",e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-F0-9]/g,"").slice(0,7);});
   $(input).addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$(button).click();}});
@@ -753,7 +761,7 @@ function bind(){
  $("resetPreferences").addEventListener("click",()=>{prefs={...initialPrefs};updateTheme();saveSettings();render();tell("Appearance reset.");});
  $("cancelpromo").addEventListener("click",()=>{pending=null;promotionEl.classList.add("hidden");});
  $("createRoom").addEventListener("click",()=>enterRoom("create"));
- $("roomsCreate").addEventListener("click",()=>{switchPanel("play",true);switchLocation("online");});
+ $("roomsCreate").addEventListener("click",()=>switchPanel("create",true));
  $("joinRoom").addEventListener("click",()=>enterRoom("join"));
  $("readyButton").addEventListener("click",()=>{if(!online?.connected||online.ready)return;
   const type=online.seatReady?.[online.seat]?"unready":"ready";online.ws.send(JSON.stringify({type}));onlineMessage(type==="ready"?"Ready confirmation submitted.":"Ready confirmation cancelled.");});
@@ -814,7 +822,12 @@ function bind(){
 }
 function init(){
  try{const old=JSON.parse(localStorage.getItem(PREFS_KEY)||"null");if(old&&typeof old==="object")prefs={...initialPrefs,...old};}catch(e){}
- const resumed=restoreAuto();updateTheme();bind();switchPanel("home");
+ const resumed=restoreAuto();updateTheme();bind();
+ const initial=(typeof location.hash==="string"&&({
+  "#/home":"home","#/":"home","#/lobby":"rooms","#/local":"local","#/setup":"create",
+  "#/leaders":"community","#/rules":"rules","#/settings":"settings","#/account":"account"
+ })[location.hash])||"home";
+ switchPanel(initial);
  if(resumed&&prefs.follow)orientation=state.turn;
  const invited=new URLSearchParams(location.search).get("room");
  const watchCode=new URLSearchParams(location.search).get("watch");
