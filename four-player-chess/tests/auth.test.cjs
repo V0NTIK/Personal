@@ -7,7 +7,8 @@ function mockStore(){
  const users=new Map(),sessions=new Map(),tables=[];
  const store={persistent:true,users,sessions,tables,async query(sql,params=[]){
   const q=sql.trim();
-  if(q.startsWith("CREATE TABLE")||q.startsWith("CREATE INDEX")){tables.push(q);return {rowCount:0,rows:[]};}
+  if(q.startsWith("CREATE TABLE")||q.startsWith("CREATE INDEX")||q.startsWith("ALTER TABLE")){tables.push(q);return {rowCount:0,rows:[]};}
+  if(q.startsWith("INSERT INTO quadra_admin_bootstrap"))return {rowCount:0,rows:[]};
   if(q.startsWith("INSERT INTO quadra_accounts")){
    const [id,handle,pass_salt,pass_hash,recovery_hash]=params;
    if(users.has(handle))return {rowCount:0,rows:[]};
@@ -17,7 +18,7 @@ function mockStore(){
   if(q.startsWith("INSERT INTO quadra_sessions")){
    sessions.set(params[0],params[1]);return {rowCount:1,rows:[]};
   }
-  if(q.startsWith("SELECT a.id,a.handle,a.created_at FROM quadra_sessions")){
+  if(q.startsWith("SELECT a.id,a.handle,a.created_at")){
    const id=sessions.get(params[0]),user=[...users.values()].find(x=>x.id===id);
    return {rowCount:user?1:0,rows:user?[user]:[]};
   }
