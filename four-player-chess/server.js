@@ -51,8 +51,14 @@ function readBody(req){
   req.on("error",e=>{if(!settled)reject(e);});
  });
 }
-function sealedSeat(raw,ws=null,account=null){return {tokenHash:sha(raw),ws,lastSeen:now(),userId:account?.id||null,alias:account?.username||null};}
-function seatSummary(r){return r.seats.map((s,i)=>({color:i,claimed:!!s,online:!!(s?.ws&&s.ws.readyState===WebSocket.OPEN),ready:!!r.seatReady[i],alias:s?.alias||null}));}
+function sealedSeat(raw,ws=null,account=null){return {tokenHash:sha(raw),ws,lastSeen:now(),joinedAt:now(),userId:account?.id||null,alias:account?.username||null,role:account?.role||"user"};}
+function oldestSeat(seats){return seats.map((s,i)=>s?{i,joinedAt:Number(s.joinedAt)||0}:null).filter(Boolean).sort((a,b)=>a.joinedAt-b.joinedAt||a.i-b.i)[0]?.i??0;}
+async function closeRoom(r,reason="Room closed"){
+ await store.remove(r.id);rooms.delete(r.id);
+ for(const s of r.seats)if(s?.ws){emit(s.ws,{type:"room-closed",message:reason});s.ws.close(4004,reason);}
+ for(const watcher of r.spectators||[]){emit(watcher,{type:"room-closed",message:reason});watcher.close(4004,reason);}
+}
+function seatSummary(r){return r.seats.map((s,i)=>({color:i,claimed:!!s,online:!!(s?.ws&&s.ws.readyState===WebSocket.OPEN),ready:!!r.seatReady[i],alias:s?.alias||null,role:s?.role||"user"}));}
 const filled=r=>r.seats.every(Boolean);
 const ready=r=>!!r.started;
 function snapshot(r){
@@ -60,6 +66,7 @@ function snapshot(r){
  return {type:"state",protocol:2,room:r.id,revision:r.rev,variant:r.variant,persistent:store.persistent,serverNow:t,
  ready:ready(r),filled:filled(r),seatReady:r.seatReady.slice(),title:r.title,
  visibility:r.visibility||"private",rated:!!r.rated,hostSeat:r.hostSeat??0,spectatorCount:r.spectators?.size||0,
+  spectators:[...(r.spectators||[])].filter(ws=>ws.sessionUser).map(ws=>({username:ws.sessionUser.username,role:ws.sessionUser.role||"user"})),
  messages:Social.publicMessages(r.messages),mutedUsers:(r.mutedUsers||[]).length,
  rematch:r.rematch.slice(),drawVotes:r.drawVotes.slice(),events:r.events,gameNo:r.gameNo,
  archives:r.archives.map(a=>({gameNo:a.gameNo,winner:a.winner,endedAt:a.endedAt,moveCount:a.moves.length,clock:a.clock})),
@@ -157,9 +164,12 @@ async function authentic(ws,msg){
   allowed=!!account&&account.id===seat.userId;
  }
  if(!allowed)return false;
+ const verified=typeof msg.session==="string"?await auth.verify(msg.session):null;
+ // An account seat requires a valid unbanned login in addition to its seat token.
+ if(seat.userId&&verified?.id!==seat.userId)return false;
  if(seat.ws&&seat.ws!==ws&&seat.ws.readyState===WebSocket.OPEN)seat.ws.close(4001,"Connected from another browser");
  seat.ws=ws;seat.lastSeen=now();ws.room=r;ws.seat=msg.seat;ws.spectator=false;
- ws.sessionUser=typeof msg.session==="string"?await auth.verify(msg.session):null;
+ ws.sessionUser=verified;
  r.updated=now();
  emit(ws,{type:"welcome",room:r.id,seat:msg.seat,protocol:3,persistent:store.persistent});
  broadcast(r);return true;
@@ -256,18 +266,50 @@ async function handleDrawVote(r,seat,ws){
 }
 async function handleVacate(r,seat,ws){
  await lockRoom(r,async()=>{
-  if(ready(r)&&!r.game.winner)return emit(ws,{type:"error",error:"A match is in progress. Resign or disconnect instead."});
   if(!r.seats[seat]||r.seats[seat].ws!==ws)return emit(ws,{type:"error",error:"You no longer own that seat."});
   const seats=r.seats.slice();seats[seat]=null;const seatReady=r.seatReady.slice();seatReady[seat]=false;
-  const nextHost=seat===r.hostSeat?(seats.findIndex(Boolean)<0?seat:seats.findIndex(Boolean)):r.hostSeat;
   try{
-   const empty=seats.every(x=>!x);
-   const payload=empty&&r.game.winner?nextRound({...r,seats,hostSeat:nextHost,seatReady}):
-     {...r,seats,hostSeat:nextHost,seatReady,updated:now()};
-   await commitRoom(r,payload);
+   if(seats.every(x=>!x)){await closeRoom(r,"Everyone left the room.");return;}
+   const next={...r,seats,hostSeat:seat===r.hostSeat?oldestSeat(seats):r.hostSeat,seatReady,updated:now()};
+   if(r.started&&!r.game.winner&&r.game.alive[seat]){
+    const t=now(),clock=Clock.copy(r.clock),wasTurn=r.game.turn===seat;
+    if(wasTurn&&clock.started)Clock.settle(clock,seat,t);
+    next.game=engine.eliminatePlayer(r.game,seat,"resign");
+    next.rev=r.rev+1;next.clock=clock;next.events=r.events&&[...r.events,{kind:"resign",player:seat}];
+    next.drawVotes=[false,false,false,false];
+    if(next.game.winner){next.clock.started=false;next.clock.activeSince=null;}
+    else if(wasTurn&&next.clock.started)next.clock.activeSince=t;
+   }
+   await commitRoom(r,next);
    emit(ws,{type:"vacated"});ws.close(1000,"Seat released");
-  }catch(e){emit(ws,{type:"error",error:"Could not release your seat. Retry when connected."});}
+  }catch(e){emit(ws,{type:"error",error:"Could not release your seat. Retry."});}
  });
+}
+async function handleRoomSettings(r,ws,msg){
+ if(ws.spectator||ws.seat!==r.hostSeat)return emit(ws,{type:"error",error:"Only the room host can edit settings."});
+ await lockRoom(r,async()=>{
+  try{
+   const title=roomTitle(msg.title),visibility=msg.visibility==="public"?"public":"private",rated=!!msg.rated;
+   if(visibility==="public"&&!r.seats[r.hostSeat]?.userId)throw Error("Sign in to make a public room.");
+   const next={...r,title,visibility,updated:now()};
+   if(!r.started&&!r.game.moves.length){
+    if(rated&&!r.seats[r.hostSeat]?.userId)throw Error("Rated rooms need an account host.");
+    if(rated&&r.seats.some(x=>x&&!x.userId))throw Error("Guests must leave before enabling rated games.");
+    const variant=variants.byMode(msg.mode||r.game.mode);
+    if(!variant)throw Error("Invalid game format.");
+    const clock=Clock.create(msg.clock??r.clock.preset);
+    next.rated=rated;next.variant=variant.id;next.game=variants.createGame(variant.id,engine);next.clock=clock;
+    next.seatReady=[false,false,false,false];next.rev=r.rev+1;
+   }else if(rated!==r.rated||(msg.mode&&msg.mode!==r.game.mode)||(msg.clock&&msg.clock!==r.clock.preset)){
+    throw Error("Format, time and rating can only change before a match starts.");
+   }
+   await commitRoom(r,next);emit(ws,{type:"notice",message:"Room settings saved for everyone."});
+  }catch(e){emit(ws,{type:"error",error:e.message||"Could not update room settings."});}
+ });
+}
+async function handleDeleteRoom(r,ws){
+ if(ws.spectator||ws.seat!==r.hostSeat)return emit(ws,{type:"error",error:"Only the room host can delete the room."});
+ await lockRoom(r,async()=>{try{await closeRoom(r,"Room deleted by host.");}catch(e){emit(ws,{type:"error",error:"Could not delete room."});}});
 }
 const LOBBY_RECLAIM_MS=30*60*1000;
 async function reclaimLobbySeats(r,t=now()){
@@ -282,7 +324,10 @@ async function reclaimLobbySeats(r,t=now()){
     seats[i]=null;count++;
    }
   }
-  if(count)await commitRoom(r,{...r,seats,hostSeat:seats[r.hostSeat]?r.hostSeat:Math.max(0,seats.findIndex(Boolean)),seatReady:seats.map((s,i)=>!!s&&r.seatReady[i]),updated:t});
+  if(count){
+    if(seats.every(x=>!x))await closeRoom(r,"Empty room removed.");
+    else await commitRoom(r,{...r,seats,hostSeat:seats[r.hostSeat]?r.hostSeat:oldestSeat(seats),seatReady:seats.map((s,i)=>!!s&&r.seatReady[i]),updated:t});
+   }
   return count;
  });
 }
@@ -298,13 +343,14 @@ function spectatorAuthorized(r,key){
  const hashed=sha(key);
  return hashed.length===r.spectatorHash.length&&crypto.timingSafeEqual(Buffer.from(hashed),Buffer.from(r.spectatorHash));
 }
-function watchRoom(ws,msg){
+async function watchRoom(ws,msg){
  if(msg?.type!=="watch"||typeof msg.room!=="string")return false;
  const room=rooms.get(msg.room.toUpperCase());
  if(!room||!spectatorAuthorized(room,msg.key))return false;
  if((room.spectators?.size||0)>=25){emit(ws,{type:"error",error:"The room's spectator capacity is full."});return false;}
  room.spectators??=new Set();
- room.spectators.add(ws);ws.room=room;ws.seat=-1;ws.spectator=true;
+ ws.sessionUser=typeof msg.session==="string"?await auth.verify(msg.session):null;
+  room.spectators.add(ws);ws.room=room;ws.seat=-1;ws.spectator=true;
  emit(ws,{type:"welcome",room:room.id,seat:null,spectator:true,protocol:4});
  broadcast(room);return true;
 }
@@ -378,7 +424,7 @@ function publicRoomSummary(r,ratings){
  rated:!!r.rated,gameNo:r.gameNo,started:r.started,finished:!!r.game.winner,
  players:r.seats.filter(Boolean).length,connected:r.seats.filter(s=>s?.ws?.readyState===WebSocket.OPEN).length,
  spectatorCount:r.spectators?.size||0,averageRating:numeric.length?Math.round(numeric.reduce((a,b)=>a+b,0)/numeric.length):null,
- variant:r.variant,clock:r.clock.preset,updated:r.updated};
+ variant:r.variant,clock:r.clock.preset,host:r.seats[r.hostSeat]?.alias||"Guest host",updated:r.updated};
 }
 async function listPublicRooms(){
  const items=[...rooms.values()].filter(r=>r.visibility==="public").slice(0,100);
@@ -424,7 +470,49 @@ const app=http.createServer(async(req,res)=>{
  if(!permitted(req.headers.origin))return send(res,req,403,{error:"Origin not allowed."});
  if(path==="/health"&&req.method==="GET")return send(res,req,200,{ok:true,rooms:rooms.size,protocol:3,accounts:auth.enabled,storage:store.persistent?"postgres":"memory"});
  if(limited(req))return send(res,req,429,{error:"Too many requests."});
- if(path==="/api/catalog"&&req.method==="GET")return send(res,req,200,{variants:variants.VARIANTS,clocks:Object.values(Clock.PRESETS),customTime:{minMinutes:1,maxMinutes:180,minIncrementSeconds:0,maxIncrementSeconds:60}});
+ if(path==="/api/stats"&&req.method==="GET"){
+   try{
+    const connected=[...rooms.values()].flatMap(r=>r.seats.filter(x=>x?.ws?.readyState===WebSocket.OPEN));
+    const watchers=[...rooms.values()].reduce((sum,r)=>sum+(r.spectators?.size||0),0);
+    return send(res,req,200,{accounts:await auth.countAccounts(),playersOnline:connected.length,spectatorsOnline:watchers,
+     activeRooms:rooms.size,liveGames:[...rooms.values()].filter(r=>r.started&&!r.game.winner).length});
+   }catch(e){return send(res,req,503,{error:"Platform statistics temporarily unavailable."});}
+  }
+  if(path.startsWith("/api/admin/")){
+   try{
+    const actor=await optionalAccount(req);
+    if(actor?.role!=="superuser")return send(res,req,403,{error:"Superuser permission required."});
+    if(path==="/api/admin/accounts"&&req.method==="GET")return send(res,req,200,{accounts:await auth.listAccounts()});
+    const ban=path.match(new RegExp("^/api/admin/accounts/([0-9a-f-]{36})/(ban|unban)$","i"));
+    if(ban&&req.method==="POST"){
+     const result=await auth.setBan(actor,ban[1],ban[2]==="ban");
+     if(result.banned){
+      for(const r of [...rooms.values()]){
+       for(const viewer of r.spectators||[])if(viewer.sessionUser?.id===result.id)viewer.close(4003,"Account suspended");
+       for(let i=0;i<4;i++)if(r.seats[i]?.userId===result.id){
+        const seat=r.seats[i],old=seat.ws;
+        if(old?.readyState===WebSocket.OPEN)await handleVacate(r,i,old);
+        else await lockRoom(r,async()=>{
+         const seats=r.seats.slice();seats[i]=null;
+         if(seats.every(x=>!x))await closeRoom(r,"Last account left.");
+         else {
+          const next={...r,seats,hostSeat:i===r.hostSeat?oldestSeat(seats):r.hostSeat,seatReady:r.seatReady.map((v,j)=>j===i?false:v),updated:now()};
+          if(r.started&&!r.game.winner&&r.game.alive[i]){
+           next.game=engine.eliminatePlayer(r.game,i,"resign");next.rev=r.rev+1;next.events=r.events&&[...r.events,{kind:"resign",player:i}];
+           if(next.game.winner)next.clock={...Clock.copy(r.clock),started:false,activeSince:null};
+          }
+          await commitRoom(r,next);
+         }
+        });
+       }
+      }
+     }
+     return send(res,req,200,result);
+    }
+    return send(res,req,404,{error:"Unknown admin action."});
+   }catch(e){return send(res,req,e.code||400,{error:e.message||"Administration request failed."});}
+  }
+  if(path==="/api/catalog"&&req.method==="GET")return send(res,req,200,{variants:variants.VARIANTS,clocks:Object.values(Clock.PRESETS),customTime:{minMinutes:1,maxMinutes:180,minIncrementSeconds:0,maxIncrementSeconds:60}});
  if(path==="/api/rooms/public"&&req.method==="GET"){
   try{return send(res,req,200,{rooms:await listPublicRooms()});}
   catch(e){return send(res,req,503,{error:"Could not load public rooms."});}
@@ -503,7 +591,7 @@ wss.on("connection",ws=>{
   if(++ws.received>40)return ws.close(4008,"Rate limit");
   if(!ws.room){
    if(msg?.type==="watch"){
-    if(!watchRoom(ws,msg))ws.close(4003,"Spectator access denied");else clearTimeout(timeout);
+    void watchRoom(ws,msg).then(ok=>{if(!ok)ws.close(4003,"Spectator access denied");else clearTimeout(timeout);}).catch(()=>ws.close(4003,"Spectator access denied"));
     return;
    }
    void authentic(ws,msg).then(ok=>{if(!ok)ws.close(4003,"Invalid room credentials");else clearTimeout(timeout);}).catch(()=>ws.close(4003,"Authentication error"));
@@ -519,6 +607,8 @@ wss.on("connection",ws=>{
   if(msg.type==="chat")return void handleRoomChat(r,ws,msg).catch(()=>emit(ws,{type:"error",error:"Chat could not be saved."}));
   if(msg.type==="chat-report")return void handleChatReport(r,ws,msg).catch(()=>emit(ws,{type:"error",error:"Report failed."}));
   if(msg.type==="moderate")return void handleModeration(r,ws,msg).catch(()=>emit(ws,{type:"error",error:"Moderation failed."}));
+  if(msg.type==="room-settings")return void handleRoomSettings(r,ws,msg).catch(()=>emit(ws,{type:"error",error:"Room settings could not be saved."}));
+  if(msg.type==="delete-room")return void handleDeleteRoom(r,ws).catch(()=>emit(ws,{type:"error",error:"Room deletion failed."}));
   if(msg.type==="new-round")return void handleNewRound(r,ws).catch(()=>emit(ws,{type:"error",error:"New round could not start."}));
   if(msg.type==="spectator-key-rotate")return void rotateSpectatorKey(r,ws).catch(()=>emit(ws,{type:"error",error:"Could not update the spectator link."}));
   if(msg.type==="ready"||msg.type==="unready")return void handleReady(r,ws.seat,ws,msg.type==="ready").catch(()=>emit(ws,{type:"error",error:"Could not update readiness."}));
