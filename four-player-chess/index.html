@@ -323,8 +323,9 @@
         <div class="hidden" id="authSignedIn">
           <div class="account-identity"><span class="avatar" id="accountAvatar" aria-hidden="true">Q</span><div><strong id="accountName">Player</strong><p class="account-sub">Signed in · Private beta profile</p></div></div>
           <div class="two-buttons"><button type="button" id="refreshAccountRooms" class="button ghost">Refresh rooms</button><button type="button" id="authLogout" class="button ghost">Sign out</button></div>
-          <div class="rule-divider"></div><h3>My private rooms</h3>
+          <div class="rule-divider"></div><h3>My rooms</h3>
           <p class="notice">Rooms linked to your account can be reopened from another device after signing in.</p>
+          <div id="accountRatingStats" class="review-stat-grid"></div>
           <div class="archive-list" id="accountRoomList"></div>
           <details class="advanced-game-actions">
             <summary>Delete my account</summary>
@@ -362,4 +363,5 @@
 <script src="./review.js" defer></script>
 <script src="./app.js" defer></script>
 <script src="./account-client.js" defer></script>
+<script src="./rooms-client.js" defer></script>
 </body></html>
