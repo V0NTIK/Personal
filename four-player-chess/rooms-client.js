@@ -25,7 +25,13 @@ function renderRooms(){
  const box=$("publicRoomList");box.replaceChildren();
  const term=$("roomSearch").value.trim().toLowerCase(),filter=$("roomFilter").value;
  const items=listed.filter(r=>(!term||(r.title||"").toLowerCase().includes(term)||r.room.toLowerCase().includes(term))&&
-  (filter==="all"||(filter==="join"&&!r.started&&r.players<4)||(filter==="watch"&&(r.started||r.finished))||(filter==="rated"&&r.rated)));
+  (filter==="all"||(filter==="join"&&!r.started&&r.players<4)||(filter==="watch"&&(r.started||r.finished))||(filter==="rated"&&r.rated))).sort((a,b)=>{
+    const sort=$("roomSort").value;
+    if(sort==="rating")return (b.averageRating??-1)-(a.averageRating??-1)||b.players-a.players;
+    if(sort==="audience")return (b.spectatorCount||0)-(a.spectatorCount||0);
+    if(sort==="players")return b.players-a.players;
+    return b.updated-a.updated;
+   });
  if(!items.length){
   box.append(paragraph(loaded?"No matching public rooms yet. Create one and invite your friends!":"Loading rooms…"));return;
  }
@@ -159,6 +165,7 @@ function bind(){
  $("refreshPublicRooms").addEventListener("click",loadRooms);
  $("roomSearch").addEventListener("input",renderRooms);
  $("roomFilter").addEventListener("change",renderRooms);
+ $("roomSort").addEventListener("change",renderRooms);
  $("refreshLeaders").addEventListener("click",loadLeaders);
  $("leaderboardMode").addEventListener("change",loadLeaders);
  $("reviewToMoves").addEventListener("click",()=>window.QuadraApp?.changePanel?.("moves",true));
