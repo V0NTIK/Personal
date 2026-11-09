@@ -31,6 +31,13 @@ function eliminatePlayer(state,color,reason="time"){
  if(s.turn===color)s.turn=(color+1)%4;
  finish(s);return s;
 }
+function concludeDraw(state){
+ if(!state||state.winner)throw Error("Game already finished.");
+ const next=clone(state);
+ next.winner="Draw by agreement";
+ next.moves.push({notation:"Draw agreed by all active players",color:next.turn});
+ return next;
+}
 function sqName(i){const [x,y]=xy(i);return letters[x]+(14-y);}
 
 
@@ -46,7 +53,7 @@ function acceptMove(s,action,color){
  const n=perform(s,{...m,...(isPromotion?{promotion:promo}:{})},true);finish(n);return n;
 }
 function publicState(s){return {b:s.b,turn:s.turn,alive:s.alive,mode:s.mode,ep:s.ep,moves:s.moves,last:s.last,winner:s.winner,round:s.round};}
-const api={N,colors,names,glyph,score,letters,idx,xy,valid,team,allied,rotate,forward,side,fresh,clone,isEnemy,threatened,kingSquare,isCheck,rawMoves,reachEnd,perform,legal,finish,sqName,acceptMove,publicState,eliminatePlayer};
+const api={N,colors,names,glyph,score,letters,idx,xy,valid,team,allied,rotate,forward,side,fresh,clone,isEnemy,threatened,kingSquare,isCheck,rawMoves,reachEnd,perform,legal,finish,sqName,acceptMove,publicState,eliminatePlayer,concludeDraw};
 if(typeof module!=="undefined"&&module.exports)module.exports=api;
 if(typeof window!=="undefined")window.QuadraCore=api;
 
