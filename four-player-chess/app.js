@@ -437,9 +437,11 @@ function connectRoom(data){
  if(online)return;
  saveAuto();
  backup={state:clone(state),stack:stack.map(clone),orientation};
- const s={room:data.room,seat:data.seat,token:data.token||null,ws:null,rev:0,ready:false,filled:false,seatReady:[false,false,false,false],title:data.title||"",clockSettings:data.clockSettings||null,connected:false,awaiting:false,rematch:[false,false,false,false],drawVotes:[false,false,false,false],events:null,replayStates:null,archives:[],gameNo:1,seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
- online=s;playLocation="online";reviewIndex=null;selected=-1;targets=[];pending=null;orientation=s.seat;
- try{sessionStorage.setItem(ROOM_KEY,JSON.stringify({room:s.room,seat:s.seat,token:s.token}));}catch(e){}
+ const s={room:data.room,seat:data.seat??null,token:data.token||null,spectator:!!data.spectator,watchKey:data.watchKey||null,
+ spectatorKey:data.spectatorKey||null,visibility:data.visibility||"private",rated:!!data.rated,hostSeat:0,
+ messages:[],spectatorCount:0,ws:null,rev:0,ready:false,filled:false,seatReady:[false,false,false,false],title:data.title||"",clockSettings:data.clockSettings||null,connected:false,awaiting:false,rematch:[false,false,false,false],drawVotes:[false,false,false,false],events:null,replayStates:null,archives:[],gameNo:1,seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
+ online=s;playLocation="online";reviewIndex=null;selected=-1;targets=[];pending=null;orientation=s.spectator?0:s.seat;
+ if(!s.spectator)try{sessionStorage.setItem(ROOM_KEY,JSON.stringify({room:s.room,seat:s.seat,token:s.token,spectatorKey:s.spectatorKey}));}catch(e){}
  switchLocation("online");switchPanel("play");render();
  function socketConnect(){
   if(online!==s||s.closed)return;
@@ -447,12 +449,19 @@ function connectRoom(data){
   let ws;
   try{ws=new WebSocket(API.replace(/^http/,"ws")+"/ws");}catch(e){onlineMessage("Unable to start the connection.");return;}
   s.ws=ws;
-  ws.onopen=()=>{if(online===s)ws.send(JSON.stringify({type:"hello",room:s.room,seat:s.seat,token:s.token,session:window.QuadraAccount?.token()||null}));};
+  ws.onopen=()=>{if(online===s)ws.send(JSON.stringify(s.spectator?{type:"watch",room:s.room,key:s.watchKey}:
+    {type:"hello",room:s.room,seat:s.seat,token:s.token,session:window.QuadraAccount?.token()||null}));};
   ws.onmessage=event=>{
    if(online!==s)return;let msg;try{msg=JSON.parse(event.data);}catch(e){return;}
-   if(msg.type==="welcome"){s.connected=true;s.attempts=0;onlineMessage("Connected as "+names[s.seat]+".");render();return;}
+   if(msg.type==="welcome"){s.connected=true;s.attempts=0;onlineMessage(s.spectator?"Watching the room in read-only mode.":"Connected as "+names[s.seat]+".");render();return;}
    if(msg.type==="error"){s.awaiting=false;onlineMessage("Server: "+msg.error);render();return;}
    if(msg.type==="vacated"){leaveRoom(true);return;}
+   if(msg.type==="notice"){tell(msg.message||"Update received.");return;}
+   if(msg.type==="spectator-key"&&typeof msg.key==="string"){
+    s.spectatorKey=msg.key;
+    try{sessionStorage.setItem(ROOM_KEY,JSON.stringify({room:s.room,seat:s.seat,token:s.token,spectatorKey:s.spectatorKey}));}catch(e){}
+    tell("New private spectator link is ready to copy.");render();return;
+   }
    if(msg.type==="archive"&&msg.archive){
     const a=msg.archive;
     downloadRecord({format:"quadra-chess-game",version:1,room:s.room,variant:s.variant,
@@ -460,12 +469,16 @@ function connectRoom(data){
       "quadra-"+s.room+"-game-"+a.gameNo+".json");return;
    }
    if(msg.type==="state"){
-    s.rev=msg.revision;s.seats=msg.seats||s.seats;s.seatReady=msg.seatReady||s.seatReady;s.filled=!!msg.filled;s.title=msg.title||s.title;s.rematch=msg.rematch||s.rematch;s.drawVotes=msg.drawVotes||s.drawVotes;
+    s.rev=msg.revision;s.seats=msg.seats||s.seats;
+    s.visibility=msg.visibility||s.visibility;s.rated=!!msg.rated;s.hostSeat=Number.isInteger(msg.hostSeat)?msg.hostSeat:s.hostSeat;
+    s.messages=Array.isArray(msg.messages)?msg.messages:s.messages;s.spectatorCount=msg.spectatorCount||0;
+    s.seatReady=msg.seatReady||s.seatReady;s.filled=!!msg.filled;s.title=msg.title||s.title;s.rematch=msg.rematch||s.rematch;s.drawVotes=msg.drawVotes||s.drawVotes;
     s.archives=msg.archives||[];s.gameNo=msg.gameNo||1;s.events=msg.events;s.ready=!!msg.ready;s.awaiting=false;s.clock=msg.clock||null;s.clockSettings=msg.clock||s.clockSettings;s.clockReceivedAt=Date.now();s.persistent=!!msg.persistent;s.variant=msg.variant||s.variant; if(s.clock)s.clockPreset=s.clock.preset;
     if(safeState(msg.game))state=msg.game;
     const positions=window.QuadraReplay?.replay(s.events,state.mode,E);
     s.replayStates=positions&&positions.length===state.moves.length+1?positions:null;
     reviewIndex=null;selected=-1;targets=[];render();
+    window.QuadraCommunity?.refreshReview?.();
     onlineMessage(s.ready?"Game started · "+s.seats.filter(v=>v.online).length+" online":"Lobby · "+s.seats.filter(v=>v.claimed).length+"/4 seats · "+s.seatReady.filter(Boolean)+"/4 ready");
     return;
    }
@@ -508,26 +521,40 @@ async function enterRoom(which){
    clock={type:"custom",minutes,incrementSeconds};
   }
   const data=which==="create"?await roomRequest("/api/rooms",{mode:$("onlineFormat").value,clock,seat,
-   title:$("roomTitleInput").value.trim()}):await roomRequest("/api/rooms/"+room+"/join",{seat});
-  connectRoom(data);tell("Private room joined.");
+   title:$("roomTitleInput").value.trim(),visibility:$("roomVisibility").value,rated:$("roomRated").checked}):
+   await roomRequest("/api/rooms/"+room+"/join",{seat});
+  connectRoom(data);tell("Room joined.");
  }catch(e){onlineMessage(e.name==="AbortError"?"Server did not respond. Please try again.":"Unable to join: "+e.message);}
  finally{button.disabled=!!online;}
 }
 function leaveRoom(vacated=false){
  if(!online)return;
  const s=online;
- if(!vacated&&!s.ready&&s.connected&&s.ws?.readyState===WebSocket.OPEN){
+ if(!s.spectator&&!vacated&&!s.ready&&s.connected&&s.ws?.readyState===WebSocket.OPEN){
   s.ws.send(JSON.stringify({type:"vacate"}));onlineMessage("Releasing your unused seat…");return;
  }
- const keepCredentials=s.ready||(!vacated&&!s.connected);
+ const keepCredentials=!s.spectator&&(s.ready||(!vacated&&!s.connected));
  s.closed=true;if(retryTimer)clearTimeout(retryTimer);s.ws?.close();
  online=null;
  if(!keepCredentials)try{sessionStorage.removeItem(ROOM_KEY);}catch(e){}
  if(backup){state=backup.state;stack=backup.stack;orientation=backup.orientation;}
  else{state=fresh("ffa");stack=[];}
  backup=null;reviewIndex=null;selected=-1;targets=[];pending=null;
- switchLocation("local");render();
+ switchLocation("local");switchPanel("rooms");render();
  tell(keepCredentials?"Disconnected. Your seat is reserved; reconnect from this tab.":"Lobby seat released. Back to local play.");
+}
+function watchRoom(room,key=null){
+ if(online){tell("Leave your current room before watching another.");return;}
+ if(!/^[A-F0-9]{7}$/i.test(room||"")){tell("Invalid spectator room code.");return;}
+ connectRoom({room:room.toUpperCase(),seat:null,spectator:true,watchKey:key||null,persistent:true,visibility:key?"private":"public"});
+}
+function copySpectatorInvite(){
+ if(!online)return;
+ const secret=online.visibility==="private"?online.spectatorKey:null;
+ if(online.visibility==="private"&&!secret){tell("The host can reset the watch-only link to create a new invitation.");return;}
+ const url=location.origin+location.pathname+"?watch="+online.room+(secret?"&key="+encodeURIComponent(secret):"");
+ if(!navigator.clipboard){prompt("Share spectator link:",url);return;}
+ navigator.clipboard.writeText(url).then(()=>tell("Watch-only invitation copied."),()=>prompt("Share spectator link:",url));
 }
 function copyInvite(){
  if(!online)return;
@@ -609,6 +636,11 @@ function init(){
  const resumed=restoreAuto();updateTheme();bind();
  if(resumed&&prefs.follow)orientation=state.turn;
  const invited=new URLSearchParams(location.search).get("room");
+ const watchCode=new URLSearchParams(location.search).get("watch");
+ const watchKey=new URLSearchParams(location.search).get("key");
+ if(watchCode&&/^[A-F0-9]{7}$/i.test(watchCode)){
+  watchRoom(watchCode,watchKey);return;
+ }
  if(invited&&/^[A-F0-9]{7}$/i.test(invited)){
   $("roomInput").value=invited.toUpperCase();switchLocation("online");onlineMessage("Invitation detected. Select Join room to take a seat.");
  }
@@ -616,6 +648,11 @@ function init(){
  if(resumed&&state.moves.length)tell("Your local game was restored.");
 }
 init();
-window.QuadraApp={getState:()=>state,getReviewIndex:()=>reviewIndex,changePanel:switchPanel,openRoom:connectRoom,isOnline:()=>!!online,refresh:render};
+window.QuadraApp={getState:()=>state,getReviewIndex:()=>reviewIndex,changePanel:switchPanel,openRoom:connectRoom,
+ watchRoom,isOnline:()=>!!online,refresh:render,getPositions:()=>online?.replayStates||localReplayFrames(),
+ getOnline:()=>online?{room:online.room,seat:online.seat,spectator:online.spectator,rated:online.rated,visibility:online.visibility,ready:online.ready,
+  gameNo:online.gameNo,hostSeat:online.hostSeat}:null,
+ reviewPly:(i)=>{if(Number.isInteger(i)&&i>=0&&i<=reviewLength()){reviewIndex=i===reviewLength()?null:i;selected=-1;targets=[];render();switchPanel("moves",true);}}
+};
 window.QuadraEngine={fresh,legal,acceptMove,finish,threatened,isCheck,valid,rotate};
 })();
