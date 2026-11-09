@@ -517,7 +517,7 @@ function bind(){
   if(!confirm("Resign as "+names[online.seat]+"? This cannot be undone."))return;
   online.ws.send(JSON.stringify({type:"resign"}));
  });
- $("leaveRoom").addEventListener("click",leaveRoom);
+ $("leaveRoom").addEventListener("click",()=>leaveRoom(false));
  $("resumeRoom").addEventListener("click",()=>{const v=sessionCredentials();if(v)connectRoom(v);else onlineMessage("No recent room available for this tab.");});
  document.addEventListener("keydown",e=>{
   if(e.key==="Escape"){if(pending){pending=null;promotionEl.classList.add("hidden");}selected=-1;targets=[];render();}
