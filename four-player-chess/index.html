@@ -22,6 +22,7 @@
       <button type="button" id="headerPlay" class="text-link">Play</button>
       <button type="button" id="headerLeaders" class="text-link">Leaders</button>
       <button type="button" id="headerHelp" class="text-link">Help</button>
+      <button type="button" id="headerSettings" class="text-link">Settings</button>
       <button type="button" id="headerAccount" class="text-link">Account</button>
       <button type="button" id="headerAdmin" class="text-link hidden">Admin</button>
     </nav>
@@ -62,6 +63,11 @@
           <p class="subtitle">A fresh perspective on the game you know.</p>
         </div>
         <div class="arena-icon" aria-hidden="true">♛</div>
+      </div>
+      <div class="game-navigation" aria-label="Match navigation">
+        <button type="button" id="navGame">Game</button>
+        <button type="button" id="navMoves">Moves</button>
+        <button type="button" id="navReview">Review</button>
       </div>
       <div class="arena-shell">
         <div class="status-bar">
@@ -221,7 +227,7 @@
                  <div class="field"><label class="field-label" for="hostRoomTitle">ROOM NAME</label><input id="hostRoomTitle" class="input" maxlength="40"></div>
                  <div class="field"><label class="field-label" for="hostRoomVisibility">ACCESS</label><select id="hostRoomVisibility" class="select"><option value="private">Private · Invite only</option><option value="public">Public · Listed</option></select></div>
                  <div class="field"><label class="field-label" for="hostRoomFormat">FORMAT</label><select class="select" id="hostRoomFormat"><option value="ffa">Free-for-all</option><option value="teams">Teams</option></select></div>
-                 <div class="field"><label class="field-label" for="hostRoomClock">CLOCK</label><select class="select" id="hostRoomClock"><option value="untimed">Unlimited</option><option value="bullet1">1 min</option><option value="blitz3">3 min</option><option value="blitz5">5 min</option><option value="rapid10">10 min</option><option value="rapid15">15 | 10</option><option value="classical30">30 min</option><option value="custom">Custom</option></select></div>
+                 <div class="field"><label class="field-label" for="hostRoomClock">CLOCK</label><select class="select" id="hostRoomClock"><option value="untimed">Unlimited</option><option value="bullet1">1 min</option><option value="bullet1inc">1 | 1</option><option value="bullet2inc">2 | 1</option><option value="blitz3">3 min</option><option value="blitz3inc">3 | 2</option><option value="blitz5">5 min</option><option value="blitz5inc">5 | 5</option><option value="rapid10">10 min</option><option value="rapid10inc">10 | 5</option><option value="rapid15">15 | 10</option><option value="classical30">30 min</option><option value="custom">Custom</option></select></div>
                  <div class="two-buttons hidden" id="hostCustomTime"><div class="field"><label for="hostCustomMinutes" class="field-label">MINUTES</label><input class="input" id="hostCustomMinutes" type="number" min="1" max="180" value="5"></div><div class="field"><label for="hostCustomIncrement" class="field-label">INCREMENT (S)</label><input class="input" id="hostCustomIncrement" type="number" min="0" max="60" value="0"></div></div>
                  <label class="settings-row" for="hostRoomRated"><span><strong>Rated game</strong><small>Requires four signed-in players</small></span><input class="toggle" type="checkbox" id="hostRoomRated"></label>
                  <p class="notice" id="hostEditNotice">Name and visibility can change anytime. Format, rating and clock are fixed after a match starts.</p>
