@@ -356,7 +356,19 @@ function updateRoom(){
  $("roomAccessLabel").textContent=(online.visibility==="public"?"PUBLIC":"PRIVATE")+" ROOM";
  $("roomModeLabel").textContent=(online.visibility==="public"?"Public":"Private")+" · "+(online.rated?"Provisional rated":"Casual");
  $("roomSpectators").textContent=(online.spectatorCount||0)+" watching";
+  const host=online.seats[online.hostSeat];
+  $("roomHost").textContent=(host?.alias?"@"+host.alias:"Guest host")+(online.seat===online.hostSeat&&!online.spectator?" · You":"");
+  const audience=$("roomSpectatorList");audience.replaceChildren();
+  if(!online.spectators?.length){const no=document.createElement("span");no.textContent=(online.spectatorCount||0)>0?"Other viewers are guests.":"No signed-in spectators yet.";audience.append(no);}
+  else for(const viewer of online.spectators){
+   const line=document.createElement("div");line.className="spectator-entry";line.textContent="@"+viewer.username;
+   if(viewer.role==="superuser"){const badge=document.createElement("span");badge.className="superuser-badge";badge.textContent=" ✦ SUPERUSER";line.append(badge);}
+   audience.append(line);
+  }
  const isSpectator=!!online.spectator;
+  const isHost=!isSpectator&&online.seat===online.hostSeat;
+  $("hostSettings").classList.toggle("hidden",!isHost);
+  for(const id of ["hostRoomFormat","hostRoomClock","hostRoomRated","hostCustomMinutes","hostCustomIncrement"])$(id).disabled=!!online.ready;
  $("copySpectatorInvite").disabled=online.visibility==="private"&&!online.spectatorKey;
  $("rotateWatchLink").classList.toggle("hidden",isSpectator||online.seat!==online.hostSeat);
  $("copyInvite").classList.toggle("hidden",isSpectator);
@@ -381,7 +393,7 @@ function updateRoom(){
  $("drawVote").disabled=!online.connected||!state.alive[online.seat]||!!online.drawVotes?.[online.seat];
  $("drawVote").textContent=online.drawVotes?.[online.seat]?"Draw vote submitted":"Offer / agree to draw";
  $("drawVotesStatus").textContent=(online.drawVotes||[]).filter(Boolean).length+" / "+state.alive.filter(Boolean).length+" active players agree";
- $("leaveRoom").textContent=isSpectator?"Leave spectator view":online.ready?"Disconnect · keep my seat":"Leave lobby · release seat";
+ $("leaveRoom").textContent=isSpectator?"Stop spectating":online.ready&&!state.winner?"Resign and leave room":"Leave room · release seat";
  if(state.winner){const votes=(online.rematch||[]).filter(Boolean).length;$("rematchVotes").textContent=votes+" / 4 players ready to restart";$("rematchRoom").disabled=!!online.rematch?.[online.seat]||!online.connected;$("rematchRoom").textContent=online.rematch?.[online.seat]?"Rematch vote sent":"Vote for rematch";}
  $("mySeat").textContent=isSpectator?"Spectator":names[online.seat];
  $("roomInput").value=online.room;
@@ -389,7 +401,7 @@ function updateRoom(){
  for(let c=0;c<4;c++){
   const el=document.createElement("div");el.className="room-seat";
   const dot=document.createElement("span");dot.className="dot";dot.style.background=playerColors[c];
-  const name=document.createElement("span");name.textContent=names[c]+(!isSpectator&&online.seat===c?" (you)":"")+(online.seats[c]?.alias?" · @"+online.seats[c].alias:"");
+  const name=document.createElement("span");name.textContent=names[c]+(!isSpectator&&online.seat===c?" (you)":"")+(online.seats[c]?.alias?" · @"+online.seats[c].alias:"")+(online.hostSeat===c?" · HOST":"")+(online.seats[c]?.role==="superuser"?" · ✦ SUPERUSER":"");
   const status=document.createElement("em");
   status.textContent=online.seats[c]?.ready?"Ready":online.seats[c]?.online?"Here":online.seats[c]?.claimed?"Away":"Open";
   if(online.seats[c]?.ready)el.classList.add("is-ready");
@@ -493,7 +505,7 @@ function connectRoom(data){
  backup={state:clone(state),stack:stack.map(clone),orientation};
  const s={room:data.room,seat:data.seat??null,token:data.token||null,spectator:!!data.spectator,watchKey:data.watchKey||null,
  spectatorKey:data.spectatorKey||null,visibility:data.visibility||"private",rated:!!data.rated,hostSeat:0,
- messages:[],spectatorCount:0,ws:null,rev:0,ready:false,filled:false,seatReady:[false,false,false,false],title:data.title||"",clockSettings:data.clockSettings||null,connected:false,awaiting:false,rematch:[false,false,false,false],drawVotes:[false,false,false,false],events:null,replayStates:null,archives:[],gameNo:1,seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
+ messages:[],spectators:[],spectatorCount:0,ws:null,rev:0,ready:false,filled:false,seatReady:[false,false,false,false],title:data.title||"",clockSettings:data.clockSettings||null,connected:false,awaiting:false,rematch:[false,false,false,false],drawVotes:[false,false,false,false],events:null,replayStates:null,archives:[],gameNo:1,seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
  online=s;playLocation="online";reviewIndex=null;selected=-1;targets=[];pending=null;orientation=s.spectator?0:s.seat;
  if(!s.spectator)try{sessionStorage.setItem(ROOM_KEY,JSON.stringify({room:s.room,seat:s.seat,token:s.token,spectatorKey:s.spectatorKey}));}catch(e){}
  switchLocation("online");switchPanel("play");render();
@@ -503,13 +515,14 @@ function connectRoom(data){
   let ws;
   try{ws=new WebSocket(API.replace(/^http/,"ws")+"/ws");}catch(e){onlineMessage("Unable to start the connection.");return;}
   s.ws=ws;
-  ws.onopen=()=>{if(online===s)ws.send(JSON.stringify(s.spectator?{type:"watch",room:s.room,key:s.watchKey}:
+  ws.onopen=()=>{if(online===s)ws.send(JSON.stringify(s.spectator?{type:"watch",room:s.room,key:s.watchKey,session:window.QuadraAccount?.token()||null}:
     {type:"hello",room:s.room,seat:s.seat,token:s.token,session:window.QuadraAccount?.token()||null}));};
   ws.onmessage=event=>{
    if(online!==s)return;let msg;try{msg=JSON.parse(event.data);}catch(e){return;}
    if(msg.type==="welcome"){s.connected=true;s.attempts=0;onlineMessage(s.spectator?"Watching the room in read-only mode.":"Connected as "+names[s.seat]+".");render();return;}
    if(msg.type==="error"){s.awaiting=false;onlineMessage("Server: "+msg.error);render();return;}
    if(msg.type==="vacated"){leaveRoom(true);return;}
+   if(msg.type==="room-closed"){const message=msg.message||"Room closed.";leaveRoom(true);tell(message);return;}
    if(msg.type==="notice"){tell(msg.message||"Update received.");return;}
    if(msg.type==="spectator-key"&&typeof msg.key==="string"){
     s.spectatorKey=msg.key;
@@ -525,21 +538,32 @@ function connectRoom(data){
    if(msg.type==="state"){
     s.rev=msg.revision;s.seats=msg.seats||s.seats;
     s.visibility=msg.visibility||s.visibility;s.rated=!!msg.rated;s.hostSeat=Number.isInteger(msg.hostSeat)?msg.hostSeat:s.hostSeat;
-    s.messages=Array.isArray(msg.messages)?msg.messages:s.messages;s.spectatorCount=msg.spectatorCount||0;
+    s.messages=Array.isArray(msg.messages)?msg.messages:s.messages;s.spectatorCount=msg.spectatorCount||0;s.spectators=Array.isArray(msg.spectators)?msg.spectators:[];
     s.seatReady=msg.seatReady||s.seatReady;s.filled=!!msg.filled;s.title=msg.title||s.title;s.rematch=msg.rematch||s.rematch;s.drawVotes=msg.drawVotes||s.drawVotes;
     s.archives=msg.archives||[];s.gameNo=msg.gameNo||1;s.events=msg.events;s.ready=!!msg.ready;s.awaiting=false;s.clock=msg.clock||null;s.clockSettings=msg.clock||s.clockSettings;s.clockReceivedAt=Date.now();s.persistent=!!msg.persistent;s.variant=msg.variant||s.variant; if(s.clock)s.clockPreset=s.clock.preset;
     if(safeState(msg.game))state=msg.game;
+    $("hostRoomTitle").value=s.title||"";
+    $("hostRoomVisibility").value=s.visibility;
+    $("hostRoomRated").checked=s.rated;
+    $("hostRoomFormat").value=state.mode;
+    $("hostRoomClock").value=s.clockPreset||"untimed";
+    if($("hostRoomClock").value!==s.clockPreset)$("hostRoomClock").value="custom";
+    if(s.clockPreset==="custom"){
+     $("hostCustomMinutes").value=String(Math.round((s.clockSettings?.initialMs||300000)/60000));
+     $("hostCustomIncrement").value=String(Math.round((s.clockSettings?.incrementMs||0)/1000));
+    }
+    $("hostCustomTime").classList.toggle("hidden",$("hostRoomClock").value!=="custom");
     const positions=window.QuadraReplay?.replay(s.events,state.mode,E);
     s.replayStates=positions&&positions.length===state.moves.length+1?positions:null;
     reviewIndex=null;selected=-1;targets=[];render();
     window.QuadraCommunity?.refreshReview?.();
-    onlineMessage(s.ready?"Game started · "+s.seats.filter(v=>v.online).length+" online":"Lobby · "+s.seats.filter(v=>v.claimed).length+"/4 seats · "+s.seatReady.filter(Boolean)+"/4 ready");
+    onlineMessage(s.ready?"Game started · "+s.seats.filter(v=>v.online).length+" online":"Lobby · "+s.seats.filter(v=>v.claimed).length+"/4 seats · "+s.seatReady.filter(Boolean).length+"/4 ready");
     return;
    }
   };
   ws.onclose=event=>{
    if(online!==s||s.closed)return;s.connected=false;s.awaiting=false;render();
-   if(event.code===4003||event.code===4004){onlineMessage("Room expired or credentials rejected. Leave the room to start again.");return;}
+   if(event.code===4003||event.code===4004){onlineMessage("Room no longer accessible. Returning to rooms.");leaveRoom(true);return;}
    const delay=Math.min(30000,1000*Math.pow(2,Math.min(5,s.attempts++)));
    onlineMessage("Connection interrupted · reconnecting…");retryTimer=setTimeout(socketConnect,delay);
   };
