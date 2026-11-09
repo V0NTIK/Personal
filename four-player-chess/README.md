@@ -3,6 +3,17 @@
 Public game: https://quadra-chess.onrender.com
 API health: https://quadra-chess-api.onrender.com/health
 
+## Version 0.4: Timed games and persistence-ready infrastructure
+
+- **Server-authoritative clocks** with unlimited, 5+0, 10+0, 15+10, and 30+0 presets. Wall-clock elapsed time deducts from the active player; a flagged player is eliminated.
+- **Live per-player clocks** render on the board; remaining time is estimated between server snapshots, and only the server can accept moves and declare time forfeits.
+- **Variant registry** (`variants.js`) names two explicit, versioned four-player variants with stable IDs and a reusable factory.
+- **Restart-recoverable room storage** (`store.js`) supports PostgreSQL. Room snapshots include game, clock, revision, seats and rematch votes; raw seat tokens are not stored in PostgreSQL.
+- **Postgres Free beta resource provisioned** in Ohio, expiring December 9, 2026. The live API still needs its `DATABASE_URL` environment variable set in the Render dashboard to enable durable mode. Without it, rooms remain in memory.
+- **Testing** now covers timed game startup and timeout elimination, clock increments, variant registration, UI clock selection and simulated persistence recovery.
+
+See **[PERSISTENCE.md](./PERSISTENCE.md)** for the secure one-time Render configuration, verification and important expiration limitations.
+
 ## Release: Streamlined UI + multiplayer improvements
 
 - New board-first, responsive dark interface with a compact tabbed control sidebar for Play, Moves, Settings, and Rules.
