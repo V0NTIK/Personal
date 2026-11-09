@@ -83,8 +83,11 @@ function switchPanel(requested,scroll=false){
  if(name==="play"&&!online)name="local";
  if(online&&!online.ready&&["play","moves","review"].includes(name))name="waiting";
  if(name==="waiting"&&!online)name="create";
- if(name==="local"&&online){tell("Leave your current room before starting a local game.");return;}
- if(name==="create"&&online){tell("Leave your current room before creating or joining another.");return;}
+ if((name==="local"||name==="create")&&online){
+  tell(name==="local"?"Leave your current room before starting a local game.":"Leave your current room before creating or joining another.");
+  if(typeof location.hash==="string"&&HASH_ROUTES[activePanel]&&location.hash!==HASH_ROUTES[activePanel])location.hash=HASH_ROUTES[activePanel];
+  return;
+ }
  if(name!=="home"&&name!=="waiting"&&!PANELS.includes(name))return;
  if(name==="admin"&&window.QuadraAccount?.role?.()!=="superuser"){tell("Superuser sign-in required.");return;}
  activePanel=name;
@@ -108,7 +111,7 @@ function switchPanel(requested,scroll=false){
  const details=$("roomDetails"),target=isWaiting?$("waitingRoomContent"):$("onlineControls");
  if(target&&details&&details.parentElement!==target)target.append(details);
  $("headerRoom").classList.toggle("hidden",!online);
- $("headerRoom").textContent=online?"My room · "+online.room:"My room";
+ $("headerRoom").textContent=online?(online.spectator?"Watching · ":"My room · ")+online.room:"My room";
  const headers={home:"headerHome",rooms:"headerRooms",local:"headerPlay",create:"headerCreate",
   waiting:"headerRoom",play:isMatch?"headerRoom":"headerPlay",
   moves:isMatch?"headerRoom":"headerPlay",review:isMatch?"headerRoom":"headerPlay",
