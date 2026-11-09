@@ -13,7 +13,7 @@ const pieceNames={k:"king",q:"queen",r:"rook",b:"bishop",n:"knight",p:"pawn"};
 const initialPrefs={theme:"sage",hints:true,coords:true,follow:false};
 let prefs={...initialPrefs};
 let state=fresh("ffa"),stack=[],selected=-1,targets=[],pending=null,orientation=0;
-let online=null,backup=null,retryTimer=null,reviewIndex=null,activePanel="rooms",playLocation="local",toastTimer=null;
+let online=null,backup=null,retryTimer=null,reviewIndex=null,activePanel="home",playLocation="local",toastTimer=null;
 
 function tell(message){
  const el=$("toast");el.textContent=message;el.classList.remove("hidden");
@@ -66,20 +66,34 @@ function updateTheme(){
  $("showCoords").checked=prefs.coords!==false;
  $("autoRotate").checked=!!prefs.follow;
 }
-function switchPanel(name,scroll){
- if(!["rooms","play","moves","review","community","settings","rules","account"].includes(name))return;
+const PANELS=["rooms","play","moves","review","community","settings","rules","account","admin"];
+function switchPanel(name,scroll=false){
+ if(name!=="home"&&!PANELS.includes(name))return;
+ if(name==="admin"&&window.QuadraAccount?.role?.()!=="superuser"){tell("Superuser sign-in required.");return;}
  activePanel=name;
- for(const id of ["rooms","play","moves","review","community","settings","rules","account"]){
+ $("homeScreen").classList.toggle("hidden",name!=="home");
+ $("workLayout").classList.toggle("hidden",name==="home");
+ const showArena=["play","moves","review"].includes(name);
+ $("arena").classList.toggle("hidden",!showArena);
+ if(document.body?.dataset)document.body.dataset.screen=name;
+ for(const id of PANELS){
   const active=id===name;
   $("panel-"+id).classList.toggle("hidden",!active);
   $("tab-"+id).setAttribute("aria-selected",String(active));
   $("tab-"+id).tabIndex=active?0:-1;
  }
+ const headers={home:"headerHome",rooms:"headerRooms",play:"headerPlay",moves:"headerPlay",
+  review:"headerPlay",community:"headerLeaders",rules:"headerHelp",settings:"headerHelp",account:"headerAccount",admin:"headerAdmin"};
+ for(const id of ["headerHome","headerRooms","headerPlay","headerLeaders","headerHelp","headerAccount","headerAdmin"]){
+  $(""+id).setAttribute("aria-current",headers[name]===id?"page":"false");
+ }
+ if(name==="home")window.QuadraCommunity?.loadStats?.();
  if(name==="rooms")window.QuadraCommunity?.loadRooms?.();
  if(name==="community")window.QuadraCommunity?.loadLeaders?.();
  if(name==="review")window.QuadraCommunity?.refreshReview?.();
+ if(name==="admin")window.QuadraAccount?.refreshAdmin?.();
  if(scroll&&window.matchMedia&&window.matchMedia("(max-width: 940px)").matches){
-  $("controls").scrollIntoView({behavior:"smooth",block:"start"});
+  (showArena?$("arena"):$("controls")).scrollIntoView({behavior:"smooth",block:"start"});
  }
 }
 function switchLocation(name){
@@ -146,12 +160,14 @@ function renderPlayers(g){
   const dot=document.createElement("span");dot.className="dot";dot.style.background=playerColors[c];
   name.append(dot,document.createTextNode(names[c]));
   if(online&&!online.spectator&&online.seat===c){const you=document.createElement("span");you.className="you-pill";you.textContent="YOU";name.append(you);}
+  if(online?.seats?.[c]?.role==="superuser"){const badge=document.createElement("span");badge.className="superuser-badge";badge.textContent="✦ SUPERUSER";name.append(badge);}
   const info=document.createElement("small");
   const material=initialsMaterial(g,c);
   const teamName=g.mode==="teams"?" · Team "+(team(c)+1):"";
-  const status=online?.seats?.[c]?.claimed?(online.seats[c].online?" · Online":" · Away"):"";
-  info.textContent=g.alive[c]?material.pieces+" pcs · "+material.n+" pts"+teamName+status:"Eliminated";
+  const status=online?(online.seats?.[c]?.claimed?(online.seats[c].ready?" · Ready":online.seats[c].online?" · Here":" · Away"):" · Open"):"";
+  info.textContent=(online?.seats?.[c]?.alias?"@"+online.seats[c].alias+" · ":"")+(g.alive[c]?material.pieces+" pcs · "+material.n+" pts"+teamName+status:"Eliminated");
   el.append(name,info);
+  if(online?.hostSeat===c){const host=document.createElement("span");host.className="host-tag";host.textContent="HOST";name.append(host);}
   if(online?.clock?.remaining){const timer=document.createElement("strong");timer.className="clock-time";timer.textContent=formattedTime(liveClockMs(c));el.append(timer);}
   playersEl.append(el);
  }
