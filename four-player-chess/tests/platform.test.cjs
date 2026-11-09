@@ -76,7 +76,7 @@ test("server timeout elimination leaves other players active",()=>{
 test("storage roundtrip drops all WebSocket objects and retains hashed seat credentials",()=>{
  const room={id:"ABC1234",rev:4,variant:"quadra-ffa",game:Engine.fresh(),
  seats:[{tokenHash:"a".repeat(64),ws:{secret:"never persist this"}},null,null,null],
- clock:Clock.create("rapid10"),rematch:[true,false,false,false],created:10,updated:20,lock:Promise.resolve()};
+ clock:Clock.create("rapid10"),rematch:[true,false,false,false],drawVotes:[true,false,false,false],events:[{kind:"resign",player:1}],archives:[{gameNo:1,winner:"Draw",moves:[],events:[{kind:"draw"}],endedAt:20,clock:"untimed"}],gameNo:2,created:10,updated:20,lock:Promise.resolve()};
  const plain=serialize(room);
  assert.equal(JSON.stringify(plain).includes("never persist"),false);
  const hydrated=deserialize(plain);
@@ -86,6 +86,10 @@ test("storage roundtrip drops all WebSocket objects and retains hashed seat cred
  assert.equal(hydrated.seats[0].ws,null);
  assert.equal(hydrated.clock.preset,"rapid10");
  assert.equal(hydrated.rematch[0],true);
+ assert.equal(hydrated.drawVotes[0],true);
+ assert.equal(hydrated.events[0].kind,"resign");
+ assert.equal(hydrated.archives[0].events[0].kind,"draw");
+ assert.equal(hydrated.gameNo,2);
  assert.ok(hydrated.lock instanceof Promise);
 });
 
@@ -131,4 +135,13 @@ test("persistent adapter saves and restores rooms across separate process instan
  assert.equal(loaded[0].seats[0].ws,null);
  assert.equal(loaded[0].clock.preset,"blitz5");
  assert.equal(loaded[0].game.b.filter(Boolean).length,64);
+});
+
+test("legacy stored rooms without replay fields load safely",()=>{
+ const room={id:"BC12345",revision:0,game:Engine.fresh(),seats:[null,null,null,null],clock:Clock.create("untimed"),created:100,updated:200};
+ const migrated=deserialize(room);
+ assert.deepEqual(migrated.events,[]);
+ assert.deepEqual(migrated.archives,[]);
+ assert.deepEqual(migrated.drawVotes,[false,false,false,false]);
+ assert.equal(migrated.gameNo,1);
 });
