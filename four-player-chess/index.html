@@ -101,6 +101,16 @@
               <select class="select" id="onlineFormat"><option value="ffa">Free-for-all · 4 players</option><option value="teams">Teams · Red + Yellow vs Blue + Green</option></select>
             </div>
             <div class="field">
+              <label class="field-label" for="onlineClock">TIME CONTROL</label>
+              <select class="select" id="onlineClock">
+                <option value="untimed">Unlimited · No clock</option>
+                <option value="blitz5">Blitz · 5 min per player</option>
+                <option value="rapid10">Rapid · 10 min per player</option>
+                <option value="rapid15">Rapid · 15 min + 10 sec per move</option>
+                <option value="classical30">Classical · 30 min per player</option>
+              </select>
+            </div>
+            <div class="field">
               <label class="field-label" for="roomInput">ROOM CODE</label>
               <input class="input" id="roomInput" maxlength="7" placeholder="Enter a 7-character code" autocomplete="off" autocapitalize="characters" spellcheck="false">
             </div>
@@ -115,6 +125,8 @@
               <div class="panel-eyebrow">PRIVATE ROOM</div>
               <div class="room-code" id="roomId"></div>
               <div class="mini-rows"><span>You play as</span><strong id="mySeat">Red</strong></div>
+              <div class="mini-rows"><span>Time control</span><strong id="roomClockName">Unlimited</strong></div>
+              <div class="mini-rows"><span>Game storage</span><strong id="roomStorage">Checking…</strong></div>
               <div class="room-seats" id="roomSeats"></div>
               <button type="button" class="button primary full" id="copyInvite">Copy invite link</button>
             </div>
@@ -122,7 +134,7 @@
             <button type="button" class="button danger full" id="leaveRoom">Leave room</button>
           </div>
           <p class="online-status" id="onlineStatus" aria-live="polite" role="status"></p>
-          <p class="notice">Private beta · Online games are temporary. Rooms may disappear when the free server restarts.</p>
+          <p class="notice" id="storageNotice">Private beta · Rooms are temporary unless durable database storage is connected.</p>
         </div>
       </section>
       <section class="tab-panel hidden" id="panel-moves" role="tabpanel" aria-labelledby="tab-moves">
