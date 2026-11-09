@@ -1,0 +1,26 @@
+name: Quadra Chess CI
+on:
+  push:
+    branches: [quadra-v08-ui-admin]
+  pull_request:
+    paths:
+      - 'four-player-chess/**'
+      - '.github/workflows/quadra-ci.yml'
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: four-player-chess
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Validate JavaScript syntax
+        run: |
+          for file in server.js app.js auth.js account-client.js rooms-client.js community.js store.js; do node --check "$file"; done
+      - name: Run complete test suite
+        run: npm test
