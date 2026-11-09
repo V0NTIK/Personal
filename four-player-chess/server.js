@@ -482,7 +482,10 @@ const app=http.createServer(async(req,res)=>{
    try{
     const actor=await optionalAccount(req);
     if(actor?.role!=="superuser")return send(res,req,403,{error:"Superuser permission required."});
-    if(path==="/api/admin/accounts"&&req.method==="GET")return send(res,req,200,{accounts:await auth.listAccounts()});
+    if(path==="/api/admin/accounts"&&req.method==="GET"){
+     const live=new Set([...rooms.values()].flatMap(r=>r.seats.filter(seat=>seat?.ws?.readyState===WebSocket.OPEN).map(seat=>seat.userId).filter(Boolean)));
+     return send(res,req,200,{accounts:(await auth.listAccounts()).map(account=>({...account,online:live.has(account.id)}))});
+    }
     const ban=path.match(new RegExp("^/api/admin/accounts/([0-9a-f-]{36})/(ban|unban)$","i"));
     if(ban&&req.method==="POST"){
      const result=await auth.setBan(actor,ban[1],ban[2]==="ban");
