@@ -258,10 +258,21 @@ function downloadRecord(record,file){
  setTimeout(()=>URL.revokeObjectURL(url),1000);
  tell("Game record downloaded.");
 }
+function localReplayFrames(){
+ const frames=[...stack,state];
+ if(frames.length===1||frames[0].moves.length!==0)return [state];
+ const expanded=[frames[0]];
+ for(let i=1;i<frames.length;i++){
+  const delta=frames[i].moves.length-frames[i-1].moves.length;
+  if(delta<1)return [state];
+  for(let j=0;j<delta;j++)expanded.push(frames[i]);
+ }
+ return expanded.length===state.moves.length+1?expanded:[state];
+}
 function currentExport(){
  return {format:"quadra-chess-game",version:1,exportedAt:new Date().toISOString(),
   variant:online?.variant|| (state.mode==="teams"?"quadra-teams":"quadra-ffa"),
-  mode:state.mode,game:state,events:online?.events||null,positions:online?null:[...stack,state],gameNo:online?.gameNo||null,clock:online?.clockPreset||"untimed"};
+  mode:state.mode,game:state,events:online?.events||null,positions:online?null:localReplayFrames(),gameNo:online?.gameNo||null,clock:online?.clockPreset||"untimed"};
 }
 function updateRoom(){
  const connected=!!online;
