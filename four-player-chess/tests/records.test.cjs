@@ -31,3 +31,20 @@ test("reject unsupported or unsafe records instead of executing them",()=>{
  assert.throws(()=>Records.decode({format:"quadra-chess-game",version:1,mode:"ffa",events:[{kind:"move",player:0,from:0,to:1}]},E,Replay),/illegal/);
  assert.throws(()=>Records.decode({format:"quadra-chess-game",version:1,mode:"ffa",events:[]},null,Replay),/unavailable/);
 });
+
+test("saved local positions provide full replay without an event stream",()=>{
+ const first=E.fresh("ffa");
+ const m=E.legal(first,0)[0],last=E.acceptMove(first,{from:m.from,to:m.to},0);
+ const record=Records.decode({format:"quadra-chess-game",version:1,mode:"ffa",game:last,events:null,positions:[first,last]},E,Replay);
+ assert.equal(record.limited,false);
+ assert.equal(record.positions.length,2);
+ assert.deepEqual(record.positions[1],last);
+});
+test("inconsistent imported frames fall back to a valid final position",()=>{
+ const first=E.fresh("ffa");
+ const m=E.legal(first,0)[0],last=E.acceptMove(first,{from:m.from,to:m.to},0);
+ const record=Records.decode({format:"quadra-chess-game",version:1,mode:"ffa",game:last,events:null,positions:[first]},E,Replay);
+ assert.equal(record.limited,true);
+ assert.equal(record.positions.length,1);
+ assert.equal(record.positions[0].moves.length,1);
+});
