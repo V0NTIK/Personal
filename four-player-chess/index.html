@@ -208,12 +208,26 @@
               <div class="mini-rows"><span>Time control</span><strong id="roomClockName">Unlimited</strong></div>
               <div class="mini-rows"><span>Game storage</span><strong id="roomStorage">Checking…</strong></div>
               <div class="mini-rows"><span>Room format</span><strong id="roomModeLabel">Private · Casual</strong></div>
-              <div class="mini-rows"><span>Spectators</span><strong id="roomSpectators">0 watching</strong></div>
+              <div class="mini-rows"><span>Host</span><strong id="roomHost">Guest host</strong></div>
+               <div class="mini-rows"><span>Spectators</span><strong id="roomSpectators">0 watching</strong></div>
+               <div class="spectator-roster"><strong>Watching this room</strong><div id="roomSpectatorList" class="spectator-list">No signed-in spectators yet.</div></div>
               <div class="room-seats" id="roomSeats"></div>
               <div id="readyControls" class="ready-controls"><p class="room-help" id="readyStatus">Waiting for players</p><button type="button" class="button primary full" id="readyButton">I’m ready</button></div>
               <button type="button" class="button primary full" id="copyInvite">Copy player invite</button>
               <button type="button" class="button ghost full" id="copySpectatorInvite">Copy watch-only invite</button>
               <button type="button" class="button ghost full hidden" id="rotateWatchLink">Reset watch-only link</button>
+               <details class="host-settings hidden" id="hostSettings">
+                 <summary>Host controls · Edit room settings</summary>
+                 <div class="field"><label class="field-label" for="hostRoomTitle">ROOM NAME</label><input id="hostRoomTitle" class="input" maxlength="40"></div>
+                 <div class="field"><label class="field-label" for="hostRoomVisibility">ACCESS</label><select id="hostRoomVisibility" class="select"><option value="private">Private · Invite only</option><option value="public">Public · Listed</option></select></div>
+                 <div class="field"><label class="field-label" for="hostRoomFormat">FORMAT</label><select class="select" id="hostRoomFormat"><option value="ffa">Free-for-all</option><option value="teams">Teams</option></select></div>
+                 <div class="field"><label class="field-label" for="hostRoomClock">CLOCK</label><select class="select" id="hostRoomClock"><option value="untimed">Unlimited</option><option value="bullet1">1 min</option><option value="blitz3">3 min</option><option value="blitz5">5 min</option><option value="rapid10">10 min</option><option value="rapid15">15 | 10</option><option value="classical30">30 min</option><option value="custom">Custom</option></select></div>
+                 <div class="two-buttons hidden" id="hostCustomTime"><div class="field"><label for="hostCustomMinutes" class="field-label">MINUTES</label><input class="input" id="hostCustomMinutes" type="number" min="1" max="180" value="5"></div><div class="field"><label for="hostCustomIncrement" class="field-label">INCREMENT (S)</label><input class="input" id="hostCustomIncrement" type="number" min="0" max="60" value="0"></div></div>
+                 <label class="settings-row" for="hostRoomRated"><span><strong>Rated game</strong><small>Requires four signed-in players</small></span><input class="toggle" type="checkbox" id="hostRoomRated"></label>
+                 <p class="notice" id="hostEditNotice">Name and visibility can change anytime. Format, rating and clock are fixed after a match starts.</p>
+                 <button type="button" id="saveHostSettings" class="button primary full">Save room settings</button>
+                 <button type="button" id="deleteHostedRoom" class="button danger full">Delete room permanently</button>
+               </details>
             </div>
             <div id="nextRoundControls" class="hidden">
               <button type="button" class="button primary full" id="nextRound">Open the next round</button>
@@ -331,6 +345,13 @@
         <div class="rule-divider"></div>
         <p class="notice">Want a future format? The shared rules engine is being structured for other chess variants and games.</p>
       </section>
+      <section class="tab-panel hidden" id="panel-admin" role="tabpanel" aria-labelledby="tab-admin">
+        <div class="panel-eyebrow">SUPERUSER CONTROL CENTER</div><h2>Platform administration</h2>
+        <p class="panel-desc">View registered accounts and suspend or restore access. Roles are verified server-side.</p>
+        <button id="refreshAdmin" class="button ghost" type="button">Refresh accounts</button>
+        <p class="room-help" id="adminStatus" role="status" aria-live="polite"></p>
+        <div id="adminAccountList" class="admin-account-list"></div>
+      </section>
       <section class="tab-panel hidden" id="panel-account" role="tabpanel" aria-labelledby="tab-account">
         <div class="panel-eyebrow">PLAYER IDENTITY</div>
         <h2>Your Quadra account</h2>
@@ -348,7 +369,7 @@
           </details>
         </div>
         <div class="hidden" id="authSignedIn">
-          <div class="account-identity"><span class="avatar" id="accountAvatar" aria-hidden="true">Q</span><div><strong id="accountName">Player</strong><p class="account-sub">Signed in · Private beta profile</p></div></div>
+          <div class="account-identity"><span class="avatar" id="accountAvatar" aria-hidden="true">Q</span><div><strong id="accountName">Player</strong><span id="accountRole" class="superuser-badge hidden">✦ SUPERUSER</span><p class="account-sub">Signed in · Private beta profile</p></div></div>
           <div class="two-buttons"><button type="button" id="refreshAccountRooms" class="button ghost">Refresh rooms</button><button type="button" id="authLogout" class="button ghost">Sign out</button></div>
           <div class="rule-divider"></div><h3>My rooms</h3>
           <p class="notice">Rooms linked to your account can be reopened from another device after signing in.</p>
