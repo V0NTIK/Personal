@@ -2,9 +2,49 @@
 
 **Playable website:** https://quadra-chess.onrender.com  
 **API health:** https://quadra-chess-api.onrender.com/health  
-**Current release:** 0.6 — custom game setup, readiness and private accounts
+**Current release:** 0.7 — room-centric chess with spectators, chat, ratings and review
 
 A mobile-friendly four-player chess beta with local pass-and-play and private online rooms. The platform uses GitHub, a free Render static site, a free Render Node.js API, and a free Render PostgreSQL database. There is currently no public matchmaking, paid subscription, advertising, or account requirement.
+
+## Version 0.7 — Room-centric social chess
+
+Quadra Chess now organizes the online experience around persistent rooms instead of single-use matches. The design is intentionally for a small, friend-led community, not a giant matchmaking queue.
+
+### Public and private rooms
+
+- **Rooms** is the primary website tab. Browse public rooms, search by title or code, and filter by open seats, live games, and rated status.
+- Create **public rooms** while signed in, or **private rooms** as a guest or account holder.
+- Public rooms display game mode, round number, occupied seats, spectators, provisional average rating and casual/rated designation.
+- Private rooms do not appear in the public directory; a host can copy a watch-only invitation link and reset it to revoke future spectator access.
+- Spectator WebSockets use read-only permissions: observers see live game positions and chat but cannot make moves, send chat, vote or moderate.
+- The same room stays around for **multiple games**. After a match, its host can open a new round while preserving the conversation and recent game records. Seat changes and another Ready countdown are possible.
+- Ordinary unanimous rematch voting remains available if the same four players want to play again.
+
+### Room chat and safety
+
+- **Room conversation** is visible to players and spectators, and retains up to the latest 80 messages across games and server restarts.
+- Only **signed-in seated players** can post; spectators can read and hide messages locally, not send messages.
+- 240-character limit, slow mode and flood controls. URLs, contact details and certain abusive text are rejected. This is a baseline filter, not a guarantee that all inappropriate language is caught.
+- Room participants can report messages; two independent reports automatically hide a message. The host can remove messages and mute participants.
+- There are no private messages, public contact directories or friend requests in this release. Avoid sharing personal or identifying information.
+
+### Ratings, achievements and reviews
+
+- **Optional provisional rated rooms** require four distinct Quadra accounts. Casual play remains available to everyone.
+- Each mode has its own starting **1200 provisional rating**. Ratings use a small **pairwise Elo adaptation**, not Chess.com's Glicko-2 or official Chess.com ratings.
+- Results are recorded transactionally and idempotently; no rating change for matches with fewer than eight actual moves. The same quartet can earn rating changes from at most two games per 24 hours.
+- View separate Free-for-All and Teams leaderboards. Provisional labels remain during the first ten rated games.
+- Account milestone badges: First Match, First Victory, Regular, Veteran, Diplomat and Rising Star.
+- The **Review** panel is available after a game finishes. It summarizes captures, checks, promotions, eliminations and player statistics, and links key moments to the replay board. This is event-based analysis, **not** an engine-powered judgement of accuracy or best moves.
+
+### Known limitations
+
+- Free Render PostgreSQL storage is scheduled to expire **December 9, 2026**. Public rooms, accounts, ratings, chat and archives are not a permanent guarantee until storage is migrated.
+- Room chats are deliberately scoped to rooms; members cannot message each other outside rooms.
+- Most Chess.com scoring rules and its Solo/variant formats remain separate from Quadra's own ruleset.
+- Only public rooms are discoverable. Neither paid matchmaking nor automated opponents are included.
+- Rating security is provisional; creating alternate accounts is not fully preventable without stronger identity and fair-play systems.
+- The first release limits each room to 25 live spectators and up to 80 recent chat messages. These are beta safeguards, not promises of large-scale availability.
 
 ## Version 0.6 — Custom challenges and optional accounts
 
@@ -68,6 +108,10 @@ four-player-chess/
   clock.js          server chess clocks and time presets
   store.js          Postgres-backed room snapshot storage
   auth.js           account authentication, recovery and sessions
+  community.js      provisional ratings, player stats, achievements
+  room-social.js    persistent chat validation and moderation
+  review.js         event-based game review
+  rooms-client.js   room discovery, leaderboards, review and spectator controls
   account-client.js signup, sign-in and linked private rooms
   server.js         HTTP and WebSocket multiplayer API
   tests/            engine, platform, server, UI and replay tests
