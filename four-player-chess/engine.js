@@ -22,6 +22,15 @@ function perform(s,m,advance){const q=clone(s),pc=q.b[m.from];q.b[m.from]=null;c
 q.last={from:m.from,to:m.to};if(advance){const notation=names[pc.c]+": "+letters[xy(m.from)[0]]+(14-xy(m.from)[1])+"–"+letters[xy(m.to)[0]]+(14-xy(m.to)[1])+(m.castle?" (castle)":"")+(m.ep!==undefined?" e.p.":"")+(m.promotion?"="+m.promotion.toUpperCase():"")+(captured||m.ep!==undefined?" ×":"");q.moves.push({notation,color:pc.c});q.turn=(pc.c+1)%4;if(q.turn===0)q.round++;}return q;}
 function legal(s,c){if(!s.alive[c])return [];const out=[];for(let f=0;f<N*N;f++){if(s.b[f]?.c!==c)continue;for(const m of rawMoves(s,f,true)){const simulated=perform(s,m,false);if(!isCheck(simulated,c))out.push(m);}}return out;}
 function finish(s){for(let attempt=0;attempt<4;attempt++){const active=s.alive.map((v,i)=>v?i:-1).filter(i=>i>=0);if(active.length<=1){s.winner=active.length?names[active[0]]+" wins!":"Draw";return;}if(s.mode==="teams"&&active.every(c=>team(c)===team(active[0]))){s.winner=(team(active[0])===0?"Red & Yellow":"Blue & Green")+" win!";return;}if(!s.alive[s.turn]){s.turn=(s.turn+1)%4;continue;}if(legal(s,s.turn).length){s.winner=null;return;}const c=s.turn;s.alive[c]=false;for(let i=0;i<s.b.length;i++)if(s.b[i]?.c===c)s.b[i]=null;s.moves.push({notation:names[c]+" eliminated (no legal moves)",color:c});if(s.ep?.owner===c)s.ep=null;s.turn=(c+1)%4;}s.winner="Game finished";}
+function eliminatePlayer(state,color,reason="time"){
+ if(!Number.isInteger(color)||color<0||color>3||!state.alive[color])throw Error("Player is not active.");
+ const s=clone(state);s.alive[color]=false;
+ for(let i=0;i<s.b.length;i++)if(s.b[i]?.c===color)s.b[i]=null;
+ if(s.ep?.owner===color)s.ep=null;
+ s.moves.push({notation:names[color]+" eliminated ("+(reason==="time"?"time expired":"resigned")+")",color});
+ if(s.turn===color)s.turn=(color+1)%4;
+ finish(s);return s;
+}
 function sqName(i){const [x,y]=xy(i);return letters[x]+(14-y);}
 
 
@@ -37,7 +46,7 @@ function acceptMove(s,action,color){
  const n=perform(s,{...m,...(isPromotion?{promotion:promo}:{})},true);finish(n);return n;
 }
 function publicState(s){return {b:s.b,turn:s.turn,alive:s.alive,mode:s.mode,ep:s.ep,moves:s.moves,last:s.last,winner:s.winner,round:s.round};}
-const api={N,colors,names,glyph,score,letters,idx,xy,valid,team,allied,rotate,forward,side,fresh,clone,isEnemy,threatened,kingSquare,isCheck,rawMoves,reachEnd,perform,legal,finish,sqName,acceptMove,publicState};
+const api={N,colors,names,glyph,score,letters,idx,xy,valid,team,allied,rotate,forward,side,fresh,clone,isEnemy,threatened,kingSquare,isCheck,rawMoves,reachEnd,perform,legal,finish,sqName,acceptMove,publicState,eliminatePlayer};
 if(typeof module!=="undefined"&&module.exports)module.exports=api;
 if(typeof window!=="undefined")window.QuadraCore=api;
 
