@@ -21,6 +21,15 @@ async function jsonFetch(url,headers){
   return result;
  }finally{clearTimeout(timeout);}
 }
+async function loadStats(){
+ const status=$("homeStatsStatus");
+ try{
+  const data=await jsonFetch("/api/stats");
+  for(const [id,key] of [["homeAccounts","accounts"],["homePlayers","playersOnline"],["homeRoomsCount","activeRooms"],["homeSpectators","spectatorsOnline"]])
+   $(id).textContent=Number(data[key]||0).toLocaleString();
+  status.textContent=(data.liveGames||0)+" live "+(data.liveGames===1?"game":"games")+" · Numbers reflect this server right now";
+ }catch(e){status.textContent="Live counts unavailable. Rooms may still work.";}
+}
 function renderRooms(){
  const box=$("publicRoomList");box.replaceChildren();
  const term=$("roomSearch").value.trim().toLowerCase(),filter=$("roomFilter").value;
@@ -46,7 +55,7 @@ function renderRooms(){
   const rating=Number.isFinite(room.averageRating)?"Avg "+room.averageRating+" provisional":"No account rating yet";
   meta.textContent=room.room+" · "+(room.mode==="teams"?"Teams":"Free-for-all")+
    " · "+room.players+"/4 seats · "+(room.spectatorCount||0)+" watching · "+
-   (room.rated?"Rated":"Casual")+" · "+rating+" · Round "+room.gameNo;
+   (room.rated?"Rated":"Casual")+" · Host "+room.host+" · "+rating+" · Round "+room.gameNo;
   const actions=document.createElement("div");actions.className="room-card-actions";
   actions.append(
    makeButton("Join room",()=>joinPublic(room),"primary",room.started||room.players>=4),
@@ -87,6 +96,7 @@ function renderLeaderList(){
   const rank=document.createElement("span");rank.className="rank";rank.textContent="#"+player.position;
   const text=document.createElement("div");
   const name=document.createElement("strong");name.textContent="@"+player.username;
+   if(player.role==="superuser"){const badge=document.createElement("span");badge.className="superuser-badge";badge.textContent=" ✦ SUPERUSER";name.append(badge);}
   const info=document.createElement("small");
   info.textContent=player.games+" played · "+player.wins+" wins"+(player.provisional?" · Provisional":"");
   text.append(name,info);
@@ -173,6 +183,6 @@ function bind(){
  $("tab-review").addEventListener("click",refreshReview);
  $("tab-rooms").addEventListener("click",loadRooms);
 }
-window.QuadraCommunity={loadRooms,loadLeaders,refreshReview,loadMyAchievements};
-bind();loadRooms();
+window.QuadraCommunity={loadRooms,loadLeaders,loadStats,refreshReview,loadMyAchievements};
+bind();loadRooms();loadStats();
 })();
