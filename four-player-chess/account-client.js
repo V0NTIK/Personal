@@ -137,7 +137,7 @@ async function refreshAdmin(){
   for(const user of data.accounts){
    const row=document.createElement("article");row.className="admin-account"+(user.banned?" is-banned":"");
    const meta=document.createElement("div"),name=document.createElement("strong"),detail=document.createElement("small");
-   name.textContent="@"+user.username+(user.role==="superuser"?" · ✦ SUPERUSER":"");
+   name.textContent="@"+user.username+(user.role==="superuser"?" · ✦ Superuser":"");
    detail.textContent=(user.banned?"Suspended":user.online?"Online":user.activeSession?"Signed-in session":"Offline")+
     " · Joined "+(user.createdAt?new Date(user.createdAt).toLocaleDateString():"unknown");
    meta.append(name,detail);
