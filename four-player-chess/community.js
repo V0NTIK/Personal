@@ -60,8 +60,8 @@ function createCommunity(store){
  }
  async function leaderboard(mode="ffa",limit=30){
   if(!enabled||!MODES.has(mode))return [];
-  const result=await store.query("SELECT a.handle AS username,s.rating,s.games,s.wins,s.draws FROM quadra_player_stats s JOIN quadra_accounts a ON a.id=s.user_id WHERE s.mode=$1 AND s.games>0 ORDER BY s.rating DESC,s.wins DESC LIMIT $2",[mode,Math.max(1,Math.min(50,Number(limit)||30))]);
-  return result.rows.map((r,i)=>({position:i+1,username:r.username,rating:Number(r.rating),games:Number(r.games),wins:Number(r.wins),draws:Number(r.draws),provisional:Number(r.games)<10}));
+  const result=await store.query("SELECT a.handle AS username,a.role,s.rating,s.games,s.wins,s.draws FROM quadra_player_stats s JOIN quadra_accounts a ON a.id=s.user_id WHERE a.banned_at IS NULL AND s.mode=$1 AND s.games>0 ORDER BY s.rating DESC,s.wins DESC LIMIT $2",[mode,Math.max(1,Math.min(50,Number(limit)||30))]);
+  return result.rows.map((r,i)=>({position:i+1,username:r.username,role:r.role||"user",rating:Number(r.rating),games:Number(r.games),wins:Number(r.wins),draws:Number(r.draws),provisional:Number(r.games)<10}));
  }
  async function record(room){
   if(!enabled||!room.rated||!room.game?.winner||!room.started)return {counted:false,reason:"not-rated"};
