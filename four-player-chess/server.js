@@ -81,10 +81,11 @@ async function commitRoom(r,next){
  await store.save(next);
  r.rev=next.rev;r.game=next.game;r.variant=next.variant;r.seats=next.seats;r.clock=next.clock;
  r.rematch=next.rematch;r.drawVotes=next.drawVotes;r.events=next.events;r.archives=next.archives;r.gameNo=next.gameNo;
+ const newlyFinished=!r.game?.winner&&!!next.game?.winner;
  r.started=next.started;r.seatReady=next.seatReady;r.title=next.title;r.updated=next.updated;
  r.visibility=next.visibility;r.rated=next.rated;r.hostSeat=next.hostSeat;r.spectatorHash=next.spectatorHash;
  r.messages=next.messages;r.reports=next.reports;r.mutedUsers=next.mutedUsers;
- if(r.game.winner&&r.rated){
+ if(newlyFinished&&r.rated){
   try{r.ratingResult=await community.record(r);}catch(e){console.error("Rating update failed for room",r.id,e.message);}
  }
  broadcast(r);
@@ -111,6 +112,7 @@ async function createRoom(mode,clockSpec="untimed",variantId=null,options={}){
  if(rooms.size>=MAX_ROOMS)throw Object.assign(Error("Room capacity reached."),{code:503});
  const seat=preferredSeat(options.seat,0),title=roomTitle(options.title);
  const visibility=options.visibility==="public"?"public":"private",rated=!!options.rated;
+ if(visibility==="public"&&!options.account)throw Object.assign(Error("Sign in to host a public room."),{code:401});
  if(rated&&!options.account)throw Object.assign(Error("Sign in to create a rated room."),{code:401});
  const roomId=id(),secret=token(),spectatorKey=token(),t=now(),seats=[null,null,null,null];
  seats[seat]=sealedSeat(secret,null,options.account);
@@ -258,7 +260,10 @@ async function handleVacate(r,seat,ws){
   const seats=r.seats.slice();seats[seat]=null;const seatReady=r.seatReady.slice();seatReady[seat]=false;
   const nextHost=seat===r.hostSeat?(seats.findIndex(Boolean)<0?seat:seats.findIndex(Boolean)):r.hostSeat;
   try{
-   await commitRoom(r,{...r,seats,hostSeat:nextHost,seatReady,updated:now()});
+   const empty=seats.every(x=>!x);
+   const payload=empty&&r.game.winner?nextRound({...r,seats,hostSeat:nextHost,seatReady}):
+     {...r,seats,hostSeat:nextHost,seatReady,updated:now()};
+   await commitRoom(r,payload);
    emit(ws,{type:"vacated"});ws.close(1000,"Seat released");
   }catch(e){emit(ws,{type:"error",error:"Could not release your seat. Retry when connected."});}
  });
@@ -327,10 +332,10 @@ async function handleChatReport(r,ws,msg){
 }
 async function handleModeration(r,ws,msg){
  const account=ws.sessionUser;
- if(!account||ws.spectator)return emit(ws,{type:"error",error:"Host account required."});
+ if(ws.spectator||ws.seat!==r.hostSeat)return emit(ws,{type:"error",error:"Only the room host can moderate."});
  await lockRoom(r,async()=>{
   try{
-   const result=Social.moderate(r,account.id,msg.id||msg.target,msg.action);
+   const result=Social.moderate(r,account?.id||null,msg.id||msg.target,msg.action);
    await commitRoom(r,{...r,messages:result.messages,mutedUsers:result.mutedUsers,updated:now()});
   }catch(e){emit(ws,{type:"error",error:e.message});}
  });
