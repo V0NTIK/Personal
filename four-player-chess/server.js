@@ -101,8 +101,9 @@ function preferredSeat(input,defaultSeat=null){
 }
 function roomTitle(input){
  if(input===undefined||input===null||input==="")return "";
- if(typeof input!=="string"||input.length>40||!(/^[a-zA-Z0-9 _.,!?'()-]+$/).test(input))throw Object.assign(Error("Room title must be under 40 characters and use ordinary text."),{code:400});
- return input.trim();
+ if(typeof input!=="string"||input.length>40||!(/^[a-zA-Z0-9 _.,!?'()-]+$/).test(input))throw Object.assign(Error("Room title must be 40 characters or shorter."),{code:400});
+ try{return Social.cleanMessage(input).slice(0,40);}
+ catch(e){throw Object.assign(Error("Use a simple title without contact information or links."),{code:400});}
 }
 function clockChoice(spec){return Clock.normalize(spec??"untimed");}
 async function createRoom(mode,clockSpec="untimed",variantId=null,options={}){
@@ -576,6 +577,9 @@ async function startServer(){
   if(rooms.size>=MAX_ROOMS)break;
   if(!variants.byId(r.variant)||!r.game||!r.clock)continue;
   rooms.set(r.id,r);
+  if(r.rated&&r.game?.winner){
+   try{await community.record(r);}catch(e){console.error("Rated result recovery failed:",r.id,e.message);}
+  }
  }
  app.listen(PORT,"0.0.0.0",()=>console.log("Quadra Chess API on",PORT,"storage:",store.persistent?"postgres":"memory","restored:",rooms.size));
 }
