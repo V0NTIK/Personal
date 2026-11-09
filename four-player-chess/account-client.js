@@ -33,6 +33,25 @@ function render(){
  $("recoveryCodeValue").textContent=recoveryCode||"";
  window.QuadraApp?.refresh?.();
 }
+function renderRatings(profile){
+ const host=$("accountRatingStats");host.replaceChildren();
+ const stats=profile?.stats||[];
+ for(const mode of ["ffa","teams"]){
+  const record=stats.find(s=>s.mode===mode)||{rating:1200,games:0,wins:0,draws:0,provisional:true};
+  const card=document.createElement("div");card.className="review-stat-card";
+  const title=document.createElement("strong");title.textContent=mode==="ffa"?"Free-for-all":"Teams";
+  const details=document.createElement("small");details.textContent=record.rating+" provisional Elo · "+record.games+" rated matches · "+record.wins+" wins";
+  card.append(title,details);host.append(card);
+ }
+}
+async function refreshProfile(){
+ if(!account)return;
+ try{
+  const data=await request("me");
+  renderRatings(data.profile);
+  window.QuadraCommunity?.loadMyAchievements?.();
+ }catch(e){message("Ratings unavailable: "+e.message);}
+}
 async function refreshRooms(){
  if(!account)return;
  try{
@@ -40,7 +59,7 @@ async function refreshRooms(){
   const host=$("accountRoomList");host.replaceChildren();
   if(!data.rooms?.length){
    const p=document.createElement("p");p.className="history-empty";
-   p.textContent="No private rooms linked to your account yet. Create one under Play.";host.append(p);return;
+   p.textContent="No rooms linked to your account yet. Create one under Play.";host.append(p);await refreshProfile();return;
   }
   for(const info of data.rooms){
    const line=document.createElement("div");line.className="archive-row";
@@ -57,6 +76,7 @@ async function refreshRooms(){
    });
    line.append(meta,button);host.append(line);
   }
+  await refreshProfile();
  }catch(e){message(e.message);}
 }
 async function submit(kind){
