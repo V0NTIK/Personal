@@ -80,7 +80,7 @@
         </div>
         <div class="arena-icon" aria-hidden="true">♛</div>
       </div>
-      <div class="game-navigation" aria-label="Match navigation">
+      <div class="game-navigation" id="gameNavigation" aria-label="Match navigation">
         <button type="button" id="navGame">Game</button>
         <button type="button" id="navMoves">Moves</button>
         <button type="button" id="navReview">Review</button>
@@ -234,6 +234,7 @@
              <button type="button" class="button ghost full hidden" id="resumeRoom" style="margin-top:9px">Reconnect to my room</button>
           </div>
         </div>
+        <p id="setupStatus" class="online-status" role="status" aria-live="polite"></p>
         <div class="hidden" aria-hidden="true"><button id="localMode" type="button" aria-pressed="true">Local</button><button id="onlineMode" type="button" aria-pressed="false">Online</button><button id="joinRoom" type="button">Legacy join</button></div>
       </section>
       <section class="tab-panel hidden" id="panel-play" role="tabpanel" aria-labelledby="tab-play">
