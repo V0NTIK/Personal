@@ -6,11 +6,13 @@ const engine=require("./engine.js");
 const variants=require("./variants.js");
 const Clock=require("./clock.js");
 const {createAuth}=require("./auth.js");
+const {createCommunity}=require("./community.js");
+const Social=require("./room-social.js");
 const {createStore,ROOM_TTL}=require("./store.js");
 const PORT=Number(process.env.PORT||3001);
 const WEB_ORIGIN=process.env.WEB_ORIGIN||"https://quadra-chess.onrender.com";
 const MAX_ROOMS=200,MAX_BODY=2048;
-const rooms=new Map(),rates=new Map(),store=createStore(),auth=createAuth(store),authRates=new Map();
+const rooms=new Map(),rates=new Map(),store=createStore(),auth=createAuth(store),community=createCommunity(store),authRates=new Map();
 const now=()=>Date.now();
 const sha=token=>crypto.createHash("sha256").update(token).digest("hex");
 const token=()=>crypto.randomBytes(32).toString("base64url");
@@ -56,7 +58,10 @@ const ready=r=>!!r.started;
 function snapshot(r){
  const t=now();
  return {type:"state",protocol:2,room:r.id,revision:r.rev,variant:r.variant,persistent:store.persistent,serverNow:t,
- ready:ready(r),filled:filled(r),seatReady:r.seatReady.slice(),title:r.title,rematch:r.rematch.slice(),drawVotes:r.drawVotes.slice(),events:r.events,gameNo:r.gameNo,
+ ready:ready(r),filled:filled(r),seatReady:r.seatReady.slice(),title:r.title,
+ visibility:r.visibility||"private",rated:!!r.rated,hostSeat:r.hostSeat??0,spectatorCount:r.spectators?.size||0,
+ messages:Social.publicMessages(r.messages),mutedUsers:(r.mutedUsers||[]).length,
+ rematch:r.rematch.slice(),drawVotes:r.drawVotes.slice(),events:r.events,gameNo:r.gameNo,
  archives:r.archives.map(a=>({gameNo:a.gameNo,winner:a.winner,endedAt:a.endedAt,moveCount:a.moves.length,clock:a.clock})),
  seats:seatSummary(r),clock:Clock.visible(r.clock,r.game.turn,t),
  game:engine.publicState(r.game)};
@@ -65,6 +70,7 @@ function emit(ws,data){if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify
 function broadcast(r){
  const payload=JSON.stringify(snapshot(r));
  for(const seat of r.seats)if(seat?.ws?.readyState===WebSocket.OPEN)seat.ws.send(payload);
+ for(const spectator of r.spectators||[])if(spectator.readyState===WebSocket.OPEN)spectator.send(payload);
 }
 function lockRoom(r,fn){
  const job=r.lock.then(fn,fn);
@@ -76,6 +82,11 @@ async function commitRoom(r,next){
  r.rev=next.rev;r.game=next.game;r.variant=next.variant;r.seats=next.seats;r.clock=next.clock;
  r.rematch=next.rematch;r.drawVotes=next.drawVotes;r.events=next.events;r.archives=next.archives;r.gameNo=next.gameNo;
  r.started=next.started;r.seatReady=next.seatReady;r.title=next.title;r.updated=next.updated;
+ r.visibility=next.visibility;r.rated=next.rated;r.hostSeat=next.hostSeat;r.spectatorHash=next.spectatorHash;
+ r.messages=next.messages;r.reports=next.reports;r.mutedUsers=next.mutedUsers;
+ if(r.game.winner&&r.rated){
+  try{r.ratingResult=await community.record(r);}catch(e){console.error("Rating update failed for room",r.id,e.message);}
+ }
  broadcast(r);
 }
 function chooseVariant(data){
@@ -99,20 +110,24 @@ async function createRoom(mode,clockSpec="untimed",variantId=null,options={}){
  const clock=Clock.create(clockSpec);
  if(rooms.size>=MAX_ROOMS)throw Object.assign(Error("Room capacity reached."),{code:503});
  const seat=preferredSeat(options.seat,0),title=roomTitle(options.title);
- const roomId=id(),secret=token(),t=now(),seats=[null,null,null,null];
+ const visibility=options.visibility==="public"?"public":"private",rated=!!options.rated;
+ if(rated&&!options.account)throw Object.assign(Error("Sign in to create a rated room."),{code:401});
+ const roomId=id(),secret=token(),spectatorKey=token(),t=now(),seats=[null,null,null,null];
  seats[seat]=sealedSeat(secret,null,options.account);
  const r={id:roomId,rev:0,variant:v.id,game:variants.createGame(v.id,engine),
-  seats,clock,rematch:[false,false,false,false],started:false,seatReady:[false,false,false,false],title,
+  seats,clock,rematch:[false,false,false,false],started:false,seatReady:[false,false,false,false],title,visibility,rated,hostSeat:seat,spectatorHash:sha(spectatorKey),
+  spectators:new Set(),messages:[],reports:{},mutedUsers:[],
   created:t,updated:t,lock:Promise.resolve(),events:[],archives:[],gameNo:1,drawVotes:[false,false,false,false]};
  await store.save(r);rooms.set(roomId,r);
  return {room:roomId,seat,token:secret,revision:0,mode:v.mode,variant:v.id,clock:clock.preset,
- clockSettings:{preset:clock.preset,initialMs:clock.initialMs,incrementMs:clock.incrementMs},persistent:store.persistent,title};
+ clockSettings:{preset:clock.preset,initialMs:clock.initialMs,incrementMs:clock.incrementMs},persistent:store.persistent,title,visibility,rated,spectatorKey};
 }
 async function joinRoom(roomId,options={}){
  const r=rooms.get(roomId);
  if(!r)throw Object.assign(Error("Room not found or expired."),{code:404});
  return lockRoom(r,async()=>{
-  if(r.started)throw Object.assign(Error("This match has already started."),{code:409});
+  if(r.started)throw Object.assign(Error("This match has already started. You can watch until the next round."),{code:409});
+  if(r.rated&&!options.account)throw Object.assign(Error("Sign in to join rated rooms."),{code:401});
   if(options.account&&r.seats.some(s=>s?.userId===options.account.id))throw Object.assign(Error("Your account already owns a seat in this room. Reconnect from Account."),{code:409});
   const chosen=preferredSeat(options.seat,null);
   const seat=chosen===null?r.seats.findIndex(s=>!s):chosen;
@@ -121,7 +136,7 @@ async function joinRoom(roomId,options={}){
   seats[seat]=sealedSeat(secret,null,options.account);
   await commitRoom(r,{...r,seats,seatReady:r.seatReady.slice(),updated:t});
   return {room:roomId,seat,token:secret,revision:r.rev,mode:r.game.mode,variant:r.variant,clock:r.clock.preset,
-  clockSettings:{preset:r.clock.preset,initialMs:r.clock.initialMs,incrementMs:r.clock.incrementMs},persistent:store.persistent,title:r.title};
+  clockSettings:{preset:r.clock.preset,initialMs:r.clock.initialMs,incrementMs:r.clock.incrementMs},persistent:store.persistent,title:r.title,visibility:r.visibility,rated:r.rated};
  });
 }
 async function authentic(ws,msg){
@@ -140,7 +155,9 @@ async function authentic(ws,msg){
  }
  if(!allowed)return false;
  if(seat.ws&&seat.ws!==ws&&seat.ws.readyState===WebSocket.OPEN)seat.ws.close(4001,"Connected from another browser");
- seat.ws=ws;seat.lastSeen=now();ws.room=r;ws.seat=msg.seat;r.updated=now();
+ seat.ws=ws;seat.lastSeen=now();ws.room=r;ws.seat=msg.seat;ws.spectator=false;
+ ws.sessionUser=typeof msg.session==="string"?await auth.verify(msg.session):null;
+ r.updated=now();
  emit(ws,{type:"welcome",room:r.id,seat:msg.seat,protocol:3,persistent:store.persistent});
  broadcast(r);return true;
 }
@@ -150,6 +167,7 @@ async function handleReady(r,seat,ws,affirm=true){
   if(!r.seats[seat]||r.seats[seat].ws!==ws)return emit(ws,{type:"error",error:"This seat is not connected."});
   const seatReady=r.seatReady.slice();seatReady[seat]=!!affirm;
   const t=now(),everyone=filled(r)&&seatReady.every(Boolean)&&r.seats.every(s=>s?.ws?.readyState===WebSocket.OPEN);
+  if(everyone&&r.rated&&r.seats.some(s=>!s?.userId))return emit(ws,{type:"error",error:"Every player needs a Quadra account for rated matches."});
   const next={...r,seatReady,updated:t};
   if(everyone){next.started=true;next.clock=Clock.copy(r.clock);Clock.start(next.clock,t);}
   try{await commitRoom(r,next);}catch(e){emit(ws,{type:"error",error:"Could not save readiness."});}
@@ -240,11 +258,12 @@ async function handleDrawVote(r,seat,ws){
 }
 async function handleVacate(r,seat,ws){
  await lockRoom(r,async()=>{
-  if(ready(r))return emit(ws,{type:"error",error:"The game has started. Use Resign to withdraw, or disconnect to return later."});
+  if(ready(r)&&!r.game.winner)return emit(ws,{type:"error",error:"A match is in progress. Resign or disconnect instead."});
   if(!r.seats[seat]||r.seats[seat].ws!==ws)return emit(ws,{type:"error",error:"You no longer own that seat."});
   const seats=r.seats.slice();seats[seat]=null;const seatReady=r.seatReady.slice();seatReady[seat]=false;
+  const nextHost=seat===r.hostSeat?(seats.findIndex(Boolean)<0?seat:seats.findIndex(Boolean)):r.hostSeat;
   try{
-   await commitRoom(r,{...r,seats,seatReady,updated:now()});
+   await commitRoom(r,{...r,seats,hostSeat:nextHost,seatReady,updated:now()});
    emit(ws,{type:"vacated"});ws.close(1000,"Seat released");
   }catch(e){emit(ws,{type:"error",error:"Could not release your seat. Retry when connected."});}
  });
@@ -262,7 +281,7 @@ async function reclaimLobbySeats(r,t=now()){
     seats[i]=null;count++;
    }
   }
-  if(count)await commitRoom(r,{...r,seats,seatReady:seats.map((s,i)=>!!s&&r.seatReady[i]),updated:t});
+  if(count)await commitRoom(r,{...r,seats,hostSeat:seats[r.hostSeat]?r.hostSeat:Math.max(0,seats.findIndex(Boolean)),seatReady:seats.map((s,i)=>!!s&&r.seatReady[i]),updated:t});
   return count;
  });
 }
@@ -430,7 +449,7 @@ function shutdown(){
  app.close();store.close().catch(()=>{});
 }
 async function startServer(){
- await store.init();await auth.init();
+ await store.init();await auth.init();await community.init();
  for(const r of await store.load()){
   if(rooms.size>=MAX_ROOMS)break;
   if(!variants.byId(r.variant)||!r.game||!r.clock)continue;
@@ -440,4 +459,4 @@ async function startServer(){
 }
 if(require.main===module)startServer().catch(err=>{console.error("Server startup failed:",err.message);process.exitCode=1;});
 process.on("SIGTERM",shutdown);
-module.exports={app,wss,rooms,store,auth,createRoom,joinRoom,snapshot,shutdown,startServer,expireTurn,reclaimLobbySeats,LOBBY_RECLAIM_MS,handleReady};
+module.exports={app,wss,rooms,store,auth,community,createRoom,joinRoom,snapshot,shutdown,startServer,expireTurn,reclaimLobbySeats,LOBBY_RECLAIM_MS,handleReady};
