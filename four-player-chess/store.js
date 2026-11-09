@@ -13,12 +13,12 @@ function deserialize(data){
   clock:data.clock||null,rematch:Array.isArray(data.rematch)&&data.rematch.length===4?data.rematch:[false,false,false,false],
   created:Number(data.created)||Date.now(),updated:Number(data.updated)||Date.now(),lock:Promise.resolve()};
 }
-function createStore(url=process.env.DATABASE_URL){
+function createStore(url=process.env.DATABASE_URL,options={}){
  const persistent=!!url;
  let pool=null;
  async function init(){
   if(!persistent)return;
-  const {Pool}=require("pg");
+  const Pool=options.Pool||require("pg").Pool;
   pool=new Pool({connectionString:url,max:4,idleTimeoutMillis:30000,connectionTimeoutMillis:15000});
   await pool.query('CREATE TABLE IF NOT EXISTS quadra_rooms (id varchar(7) PRIMARY KEY, revision integer NOT NULL, data jsonb NOT NULL, updated_at timestamptz NOT NULL, expires_at timestamptz NOT NULL)');
   await pool.query('CREATE INDEX IF NOT EXISTS quadra_rooms_expires_idx ON quadra_rooms (expires_at)');
