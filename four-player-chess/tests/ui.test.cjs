@@ -15,8 +15,19 @@ class MockElement{
   const set=new Set();
   this.classList={add(...v){v.forEach(x=>set.add(x))},remove(...v){v.forEach(x=>set.delete(x))},toggle(k,force){const state=force===undefined?!set.has(k):!!force;state?set.add(k):set.delete(k);return state;},contains:k=>set.has(k)};
  }
- append(...v){this.children.push(...v);}
- replaceChildren(...v){this.children=[...v];}
+ append(...v){
+  for(const item of v){
+   if(item instanceof MockElement){
+    if(item.parentElement)item.parentElement.children=item.parentElement.children.filter(x=>x!==item);
+    item.parentElement=this;
+   }
+   this.children.push(item);
+  }
+ }
+ replaceChildren(...v){
+  for(const child of this.children)if(child instanceof MockElement&&child.parentElement===this)child.parentElement=null;
+  this.children=[];this.append(...v);
+ }
  addEventListener(name,fn){this.events[name]=fn;}
  setAttribute(k,v){this.attrs[k]=v;}
  get firstElementChild(){return this.children[0];}
@@ -340,12 +351,14 @@ test("pregame room and active match use separate UI states and transition on aut
  assert.equal(nodes.readyControls.classList.contains("hidden"),false);
  assert.equal(nodes.matchActions.classList.contains("hidden"),true);
  assert.equal(nodes.waitingRoomContent.children.at(-1),nodes.roomDetails);
+ assert.equal(nodes.roomDetails.parentElement,nodes.waitingRoomContent);
  assert.ok(nodes.roomSeats.children[0].children[1].children.some(c=>c.className==="superuser-badge"));
  ws.receive({type:"state",revision:0,ready:true,filled:true,seatReady:[true,true,true,true],seats,game:Engine.fresh()});
  assert.equal(nodes.waitingRoomScreen.classList.contains("hidden"),true);
  assert.equal(nodes.workLayout.classList.contains("hidden"),false);
  assert.equal(nodes.arena.classList.contains("hidden"),false);
  assert.equal(nodes["panel-play"].classList.contains("hidden"),false);
+ assert.equal(nodes.roomDetails.parentElement,nodes.onlineControls);
  assert.equal(nodes.readyControls.classList.contains("hidden"),true);
  assert.ok(nodes.players.children[0].children.some(c=>c.className==="superuser-badge"));
  ws.receive({type:"state",revision:1,ready:false,filled:true,seatReady:[false,false,false,false],seats,game:Engine.fresh()});
