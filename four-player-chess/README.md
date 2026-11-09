@@ -13,7 +13,7 @@ A mobile-friendly four-player chess beta with local pass-and-play and private on
 - **Private lobby cleanup:** explicitly leaving an unstarted lobby releases the seat. Disconnected seats in unstarted lobbies are automatically reclaimable after 30 minutes. Started matches retain seats so friends can reconnect.
 - **Online replay:** new online matches record compact, deterministic chess events. Move-by-move replay is supported while a match is in progress or after it ends. Matches started before recording was enabled may not support replay.
 - **Previous-match archive:** when all four players vote for a rematch, the finished match is retained in that room's recent archive (up to eight finished games). Anyone holding a valid seat credential can download an archived game.
-- **Game downloads:** current games can be exported as portable JSON. No credentials are included in the export.
+- **Game downloads and private viewer:** current and archived games can be exported as portable JSON with no seat credentials. Open saved records in the [browser-only replay viewer](https://quadra-chess.onrender.com/viewer.html), which does not upload the file.
 - **Compatibility:** older PostgreSQL room snapshots load with safe defaults even when no move-event history exists.
 - **Regression tests:** Node's built-in test runner checks rules, live multiplayer, local and online UI, clocks, archive persistence, and replay without introducing paid services.
 
@@ -45,6 +45,9 @@ four-player-chess/
   engine.js         deterministic four-player move and result engine
   variants.js       versioned four-player variant registry
   replay.js         deterministic event replay in browser and Node
+  records.js        validated portable chess-record parser
+  viewer.html       standalone local-file viewer
+  viewer.js         offline replay and record navigation
   clock.js          server chess clocks and time presets
   store.js          Postgres-backed room snapshot storage
   server.js         HTTP and WebSocket multiplayer API
@@ -78,7 +81,7 @@ The `postinstall` script runs `npm test` to prevent deploying a server with fail
 
 1. More extensive legal-move and adjudication tests, including four-player tactical fixtures.
 2. Read-only game-record import and better offline archive viewing.
-3. Database expiration reminders and an export/migration strategy, without purchasing services.
+3. Database expiration reminders, and a migration strategy for the already-working free JSON exports, without purchasing services.
 4. Browser-driven tests on desktop and mobile and improved reconnect/latency UX.
 5. Additional variant engine packages and an extensible protocol for future board games.
 
