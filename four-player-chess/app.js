@@ -302,6 +302,7 @@ function render(){
  $("mode").disabled=!!online;
  $("mode").value=state.mode;
  for(const id of ["new","save","load"])$(id).disabled=!!online;
+ for(const id of ["resignLocal","drawLocal"])$(id).disabled=!!online||!!state.winner;
  updateRoom();
 }
 function clickSquare(i){
@@ -482,6 +483,20 @@ function bind(){
  $("localMode").addEventListener("click",()=>switchLocation("local"));
  $("onlineMode").addEventListener("click",()=>switchLocation("online"));
  $("new").addEventListener("click",()=>newGame($("mode").value));
+ $("resignLocal").addEventListener("click",()=>{
+  if(online||state.winner)return;
+  const player=state.turn;
+  if(!confirm("Resign as "+names[player]+"? This removes that player's pieces."))return;
+  stack.push(clone(state));state=E.eliminatePlayer(state,player,"resign");
+  selected=-1;targets=[];pending=null;reviewIndex=null;if(prefs.follow)orientation=state.turn;
+  saveAuto();render();tell(names[player]+" resigned.");
+ });
+ $("drawLocal").addEventListener("click",()=>{
+  if(online||state.winner)return;
+  if(!confirm("Do all players agree to end this game in a draw?"))return;
+  stack.push(clone(state));state=E.concludeDraw(state);
+  selected=-1;targets=[];pending=null;reviewIndex=null;saveAuto();render();tell("Game ended by agreement.");
+ });
  $("mode").addEventListener("change",event=>{
   if(online){event.target.value=state.mode;return;}
   if(state.moves.length&&!confirm("Changing the format starts a new game. Continue?")){event.target.value=state.mode;return;}
