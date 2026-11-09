@@ -183,3 +183,20 @@ test("disconnecting a pregame lobby sends a seat release request",async()=>{
  assert.equal(sessionStorage.getItem("quadra-online"),null);
  assert.equal(nodes.localMode.attrs["aria-pressed"],"true");
 });
+
+test("local resignation and agreed draw support undo and autosave",()=>{
+ const {nodes,window,storage}=launch();
+ nodes.resignLocal.emit("click");
+ let g=window.QuadraApp.getState();
+ assert.equal(g.alive[0],false);
+ assert.equal(g.turn,1);
+ assert.match(g.moves.at(-1).notation,/resigned/);
+ nodes.drawLocal.emit("click");
+ g=window.QuadraApp.getState();
+ assert.equal(g.winner,"Draw by agreement");
+ assert.ok(storage.has("quadra-autosave-v3"));
+ nodes.undo.emit("click");
+ assert.equal(window.QuadraApp.getState().winner,null);
+ nodes.undo.emit("click");
+ assert.equal(window.QuadraApp.getState().alive[0],true);
+});
