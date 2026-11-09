@@ -844,12 +844,14 @@ async function roomRequest(path,payload){
  }finally{clearTimeout(timeout);}
 }
 async function enterRoom(which){
- if(online)return;
+ if(roomSessions.size>=MAX_ACTIVE_ROOMS&&which==="create"){tell("Close a room in My rooms to make space for another.");return;}
  const button=$(which==="create"?"createRoom":"joinRoom");button.disabled=true;
  onlineMessage("Starting the multiplayer service…");
  try{
   const room=$("roomInput").value.trim().toUpperCase();
   if(which==="join"&&!/^[A-F0-9]{7}$/.test(room))throw Error("Enter a valid seven-character room code.");
+  if(which==="join"&&roomSessions.has(room)){activateRoom(room);return;}
+  if(roomSessions.size>=MAX_ACTIVE_ROOMS)throw Error("Maximum "+MAX_ACTIVE_ROOMS+" simultaneous rooms in one browser tab.");
   const preference=$("preferredSeat").value;
   const seat=preference===""?null:Number(preference);
   let clock=$("onlineClock").value;
@@ -863,37 +865,27 @@ async function enterRoom(which){
    await roomRequest("/api/rooms/"+room+"/join",{seat});
   connectRoom(data);tell("Room joined.");
  }catch(e){onlineMessage(e.name==="AbortError"?"Server did not respond. Please try again.":"Unable to join: "+e.message);}
- finally{button.disabled=!!online;}
+ finally{button.disabled=false;}
 }
 function leaveRoom(vacated=false){
  if(!online)return;
- const s=online;
- if(!s.spectator&&!vacated){
-  if(!s.connected||s.ws?.readyState!==WebSocket.OPEN){tell("Reconnect to release your seat. Disconnecting alone does not remove the room.");return;}
-  if(s.ready&&!state.winner&&!confirm("Leaving a live game resigns your color. Continue?"))return;
-  s.ws.send(JSON.stringify({type:"vacate"}));onlineMessage("Leaving room and releasing seat…");return;
- }
- s.closed=true;if(retryTimer)clearTimeout(retryTimer);s.ws?.close();
- online=null;
- try{sessionStorage.removeItem(ROOM_KEY);}catch(e){}
- if(backup){state=backup.state;stack=backup.stack;orientation=backup.orientation;}
- else{state=fresh("ffa");stack=[];}
- backup=null;reviewIndex=null;selected=-1;targets=[];pending=null;
- switchLocation("local");switchPanel("rooms");render();
- if(!vacated)tell("Returned to the public rooms.");
+ if(vacated)dismissRoomSession(online);
+ else leaveSpecificRoom(online);
 }
 async function joinByCode(code){
- if(online){tell("Leave your current room before joining another.");return;}
  const room=String(code||"").trim().toUpperCase();
  if(!/^[A-F0-9]{7}$/.test(room)){tell("Enter the seven-character room code.");return;}
+ if(roomSessions.has(room)){activateRoom(room);return;}
+ if(roomSessions.size>=MAX_ACTIVE_ROOMS){tell("You already have "+MAX_ACTIVE_ROOMS+" open rooms. Leave one first.");return;}
  $("roomInput").value=room;$("preferredSeat").value="";
- switchPanel("create",true);
- await enterRoom("join");
+ switchPanel("create",true);await enterRoom("join");
 }
 function watchRoom(room,key=null){
- if(online){tell("Leave your current room before watching another.");return;}
  if(!/^[A-F0-9]{7}$/i.test(room||"")){tell("Invalid spectator room code.");return;}
- connectRoom({room:room.toUpperCase(),seat:null,spectator:true,watchKey:key||null,persistent:true,visibility:key?"private":"public"});
+ const code=room.toUpperCase();
+ if(roomSessions.has(code)){activateRoom(code);return;}
+ if(roomSessions.size>=MAX_ACTIVE_ROOMS){tell("Close one of your "+MAX_ACTIVE_ROOMS+" rooms before spectating another.");return;}
+ connectRoom({room:code,seat:null,spectator:true,watchKey:key||null,persistent:true,visibility:key?"private":"public"});
 }
 function copySpectatorInvite(){
  if(!online)return;
@@ -923,7 +915,14 @@ function bind(){
  $("headerRooms").addEventListener("click",()=>switchPanel("rooms",true));
  $("headerPlay").addEventListener("click",()=>switchPanel("local",true));
  $("headerCreate").addEventListener("click",()=>switchPanel("create",true));
- $("headerRoom").addEventListener("click",()=>switchPanel("room",true));
+ $("headerRoom").addEventListener("click",()=>switchPanel("myrooms",true));
+ $("roomsMyRooms").addEventListener("click",()=>switchPanel("myrooms",true));
+ $("myroomsBrowse").addEventListener("click",()=>switchPanel("rooms",true));
+ $("myroomsCreate").addEventListener("click",()=>switchPanel("create",true));
+ $("myroomsRefresh").addEventListener("click",refreshKnownRooms);
+ window.addEventListener("focus",updateFocus);
+ window.addEventListener("blur",updateFocus);
+ document.addEventListener("visibilitychange",updateFocus);
  $("headerLeaders").addEventListener("click",()=>switchPanel("community",true));
  $("headerAccount").addEventListener("click",()=>switchPanel("account",true));
  $("headerAdmin").addEventListener("click",()=>switchPanel("admin",true));
@@ -1027,13 +1026,21 @@ function bind(){
   online.ws.send(JSON.stringify({type:"resign"}));
  });
  $("leaveRoom").addEventListener("click",()=>leaveRoom(false));
- $("resumeRoom").addEventListener("click",()=>{const v=sessionCredentials();if(v)connectRoom(v);else onlineMessage("No recent room available for this tab.");});
+ $("resumeRoom").addEventListener("click",()=>{
+  const v=sessionCredentials();
+  if(v)connectRoom(v);else onlineMessage("No recent room credentials available.");
+ });
  document.addEventListener("keydown",e=>{
   if(e.key==="Escape"){if(pending){pending=null;promotionEl.classList.add("hidden");}selected=-1;targets=[];render();}
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="z"&&!online&&!reviewing()&&stack.length){e.preventDefault();state=stack.pop();selected=-1;targets=[];saveAuto();render();}
  });
- window.addEventListener("beforeunload",()=>{if(!online)saveAuto();});
- setInterval(()=>{if(online?.ws?.readyState===WebSocket.OPEN)online.ws.send(JSON.stringify({type:"ping"}));},25000);
+ window.addEventListener("beforeunload",()=>{
+  if(!online)saveAuto();
+  saveRoomRegistry();
+ });
+ setInterval(()=>{
+  for(const s of roomSessions.values())if(s.ws?.readyState===WebSocket.OPEN)s.ws.send(JSON.stringify({type:"ping"}));
+ },25000);
  setInterval(updateTimers,300);
 }
 function init(){
@@ -1042,6 +1049,7 @@ function init(){
  const initial=(typeof location.hash==="string"?panelForHash(location.hash):null)||"home";
  switchPanel(initial);
  if(resumed&&prefs.follow)orientation=state.turn;
+ restoreRoomRegistry();
  const invited=new URLSearchParams(location.search).get("room");
  const watchCode=new URLSearchParams(location.search).get("watch");
  const watchKey=new URLSearchParams(location.search).get("key");
@@ -1051,14 +1059,18 @@ function init(){
  if(invited&&/^[A-F0-9]{7}$/i.test(invited)){
   $("roomInput").value=invited.toUpperCase();
   onlineMessage("Invite detected · joining room…");
-  setTimeout(()=>{if(!online)joinByCode(invited);},400);
+  setTimeout(()=>joinByCode(invited),400);
  }
  render();
  if(resumed&&state.moves.length)tell("Your local game was restored.");
 }
 init();
 window.QuadraApp={getState:()=>state,getReviewIndex:()=>reviewIndex,changePanel:switchPanel,openRoom:connectRoom,
- watchRoom,joinRoomCode:joinByCode,isOnline:()=>!!online,refresh:render,getPositions:()=>online?.replayStates||localReplayFrames(),
+ watchRoom,joinRoomCode:joinByCode,activateRoom,refreshKnownRooms,onAccountChanged,
+ canAddRoom:room=>roomSessions.has(String(room||"").toUpperCase())||roomSessions.size<MAX_ACTIVE_ROOMS,
+ isRoomOpen:room=>roomSessions.has(String(room||"").toUpperCase()),
+ listRoomSessions:()=>[...roomSessions.values()].map(s=>({room:s.room,seat:s.seat,spectator:s.spectator,ready:s.ready,connected:s.connected})),
+ isOnline:()=>roomSessions.size>0,refresh:render,getPositions:()=>online?.replayStates||localReplayFrames(),
  getOnline:()=>online?{room:online.room,seat:online.seat,spectator:online.spectator,rated:online.rated,visibility:online.visibility,ready:online.ready,
   gameNo:online.gameNo,hostSeat:online.hostSeat}:null,
  reviewPly:(i)=>{if(Number.isInteger(i)&&i>=0&&i<=reviewLength()){reviewIndex=i===reviewLength()?null:i;selected=-1;targets=[];render();switchPanel("moves",true);}}
