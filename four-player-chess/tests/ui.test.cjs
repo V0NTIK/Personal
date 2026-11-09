@@ -134,7 +134,7 @@ test("online clock selection and authoritative clock snapshot render properly",a
  ws.receive({type:"welcome",seat:0,persistent:false});
  const clock={preset:"rapid15",remaining:[900000,900000,900000,900000],activeSince:Date.now(),started:true,flag:null};
  ws.receive({type:"state",revision:0,ready:true,seats:[{claimed:true,online:true},{claimed:true,online:true},{claimed:true,online:true},{claimed:true,online:true}],game:Engine.fresh(),clock,persistent:false,variant:"quadra-ffa"});
- assert.equal(nodes.roomClockName.textContent,"15 min + 10 sec");
+ assert.equal(nodes.roomClockName.textContent,"15 | 10");
  assert.equal(nodes.roomStorage.textContent,"Temporary memory");
  assert.ok(nodes.players.children[0].children.some(child=>child.className==="clock-time"));
  assert.match(nodes.players.children[0].children.at(-1).textContent,/^15:00$/);
