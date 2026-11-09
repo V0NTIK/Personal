@@ -5,6 +5,9 @@ function serialize(room){
  return {id:room.id,revision:room.rev,game:room.game,variant:room.variant,
   seats:room.seats.map(s=>s?{tokenHash:s.tokenHash,lastSeen:s.lastSeen,userId:s.userId||null,alias:s.alias||null}:null),
   clock:room.clock,rematch:room.rematch,drawVotes:room.drawVotes,events:room.events,archives:room.archives,gameNo:room.gameNo,
+  visibility:room.visibility||"private",rated:!!room.rated,hostSeat:Number.isInteger(room.hostSeat)?room.hostSeat:0,
+  spectatorHash:room.spectatorHash||null,
+  messages:(room.messages||[]).slice(-100),mutedUsers:room.mutedUsers||[],reports:room.reports||{},
   title:room.title||"",started:!!room.started,seatReady:room.seatReady||[false,false,false,false],created:room.created,updated:room.updated};
 }
 function deserialize(data){
@@ -15,6 +18,10 @@ function deserialize(data){
   drawVotes:Array.isArray(data.drawVotes)&&data.drawVotes.length===4?data.drawVotes:[false,false,false,false],
   events:Array.isArray(data.events)?data.events:(data.game.moves?.length?null:[]),
   archives:Array.isArray(data.archives)?data.archives.slice(-8):[],gameNo:Number.isInteger(data.gameNo)&&data.gameNo>0?data.gameNo:1,
+  visibility:data.visibility==="public"?"public":"private",rated:!!data.rated,hostSeat:Number.isInteger(data.hostSeat)?data.hostSeat:0,
+  spectatorHash:data.spectatorHash||null, spectators:new Set(),
+  messages:Array.isArray(data.messages)?data.messages.slice(-100):[],mutedUsers:Array.isArray(data.mutedUsers)?data.mutedUsers:[],
+  reports:data.reports&&typeof data.reports==="object"?data.reports:{},
   title:typeof data.title==="string"?data.title.slice(0,40):"",
   started:typeof data.started==="boolean"?data.started:data.seats.every(Boolean),
   seatReady:Array.isArray(data.seatReady)&&data.seatReady.length===4?data.seatReady.map(Boolean):data.seats.map(Boolean),
@@ -43,10 +50,20 @@ function createStore(url=process.env.DATABASE_URL,options={}){
   const result=await pool.query('SELECT data FROM quadra_rooms WHERE expires_at > now() ORDER BY updated_at DESC LIMIT 200');
   return result.rows.map(r=>deserialize(r.data));
  }
- async function query(sql,params=[]){if(!pool)throw Error("Accounts require connected PostgreSQL.");return pool.query(sql,params);}
+ async function query(sql,params=[]){if(!pool)throw Error("Query requires connected PostgreSQL.");return pool.query(sql,params);}
+ async function transaction(fn){
+  if(!pool)throw Error("Transaction requires PostgreSQL.");
+  const client=await pool.connect();
+  try{
+   await client.query("BEGIN");
+   const value=await fn((sql,params=[])=>client.query(sql,params));
+   await client.query("COMMIT");return value;
+  }catch(e){await client.query("ROLLBACK");throw e;}
+  finally{client.release();}
+ }
  async function remove(id){if(persistent)await pool.query('DELETE FROM quadra_rooms WHERE id=$1',[id]);}
  async function cleanup(){if(persistent)await pool.query('DELETE FROM quadra_rooms WHERE expires_at <= now()');}
  async function close(){if(pool)await pool.end();}
- return {persistent,init,save,load,remove,cleanup,close,query};
+ return {persistent,init,save,load,remove,cleanup,close,query,transaction};
 }
 module.exports={DAY,ROOM_TTL,serialize,deserialize,createStore};
