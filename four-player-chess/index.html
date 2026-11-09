@@ -20,6 +20,7 @@
     </a>
     <div class="header-actions">
       <button type="button" id="headerHelp" class="text-link">How to play</button>
+      <button type="button" id="headerAccount" class="text-link">Account</button>
       <span class="beta">Open beta</span>
     </div>
   </header>
@@ -68,6 +69,7 @@
         <button type="button" class="tab" id="tab-moves" data-tab="moves" role="tab" aria-controls="panel-moves" aria-selected="false">Moves</button>
         <button type="button" class="tab" id="tab-settings" data-tab="settings" role="tab" aria-controls="panel-settings" aria-selected="false">Settings</button>
         <button type="button" class="tab" id="tab-rules" data-tab="rules" role="tab" aria-controls="panel-rules" aria-selected="false">Rules</button>
+        <button type="button" class="tab" id="tab-account" data-tab="account" role="tab" aria-controls="panel-account" aria-selected="false">Account</button>
       </div>
       <section class="tab-panel" id="panel-play" role="tabpanel" aria-labelledby="tab-play">
         <div class="panel-eyebrow">YOUR GAME</div>
@@ -111,12 +113,31 @@
               <label class="field-label" for="onlineClock">TIME CONTROL</label>
               <select class="select" id="onlineClock">
                 <option value="untimed">Unlimited · No clock</option>
-                <option value="blitz5">Blitz · 5 min per player</option>
-                <option value="rapid10">Rapid · 10 min per player</option>
-                <option value="rapid15">Rapid · 15 min + 10 sec per move</option>
-                <option value="classical30">Classical · 30 min per player</option>
+                <optgroup label="Bullet">
+                  <option value="bullet1">1 min</option><option value="bullet1inc">1 | 1</option><option value="bullet2inc">2 | 1</option>
+                </optgroup>
+                <optgroup label="Blitz">
+                  <option value="blitz3">3 min</option><option value="blitz3inc">3 | 2</option><option value="blitz5">5 min</option><option value="blitz5inc">5 | 5</option>
+                </optgroup>
+                <optgroup label="Rapid and classical">
+                  <option value="rapid10">10 min</option><option value="rapid10inc">10 | 5</option><option value="rapid15">15 | 10</option><option value="classical30">30 min</option>
+                </optgroup>
+                <option value="custom">Custom time control…</option>
               </select>
             </div>
+            <div class="two-buttons hidden" id="customTimeFields">
+              <div class="field"><label class="field-label" for="customMinutes">MINUTES (1–180)</label><input class="input" type="number" min="1" max="180" value="5" id="customMinutes"></div>
+              <div class="field"><label class="field-label" for="customIncrement">INCREMENT (0–60 S)</label><input class="input" type="number" min="0" max="60" value="0" id="customIncrement"></div>
+            </div>
+            <div class="field">
+              <label class="field-label" for="preferredSeat">PREFERRED PIECES</label>
+              <select class="select" id="preferredSeat"><option value="">Any available</option><option value="0">Red</option><option value="1">Blue</option><option value="2">Yellow</option><option value="3">Green</option></select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="roomTitleInput">ROOM NAME (OPTIONAL)</label>
+              <input id="roomTitleInput" class="input" maxlength="40" placeholder="e.g. Friday chess night" autocomplete="off">
+            </div>
+            <p class="notice">Private invitations · Casual, unrated · Everyone must press Ready before clocks begin.</p>
             <div class="field">
               <label class="field-label" for="roomInput">ROOM CODE</label>
               <input class="input" id="roomInput" maxlength="7" placeholder="Enter a 7-character code" autocomplete="off" autocapitalize="characters" spellcheck="false">
@@ -131,10 +152,12 @@
             <div class="room-box">
               <div class="panel-eyebrow">PRIVATE ROOM</div>
               <div class="room-code" id="roomId"></div>
+              <div class="room-help" id="roomDisplayTitle"></div>
               <div class="mini-rows"><span>You play as</span><strong id="mySeat">Red</strong></div>
               <div class="mini-rows"><span>Time control</span><strong id="roomClockName">Unlimited</strong></div>
               <div class="mini-rows"><span>Game storage</span><strong id="roomStorage">Checking…</strong></div>
               <div class="room-seats" id="roomSeats"></div>
+              <div id="readyControls" class="ready-controls"><p class="room-help" id="readyStatus">Waiting for players</p><button type="button" class="button primary full" id="readyButton">I’m ready</button></div>
               <button type="button" class="button primary full" id="copyInvite">Copy invite link</button>
             </div>
             <div id="rematchControls" class="hidden" style="margin-bottom:11px"><button type="button" class="button primary full" id="rematchRoom">Vote for rematch</button><p class="room-help" id="rematchVotes" style="margin:10px 0 0">Waiting for votes</p></div>
@@ -208,6 +231,45 @@
         <p>This is Quadra's own documented ruleset, not an exact recreation of Chess.com's four-player scoring and elimination format.</p>
         <div class="rule-divider"></div>
         <p class="notice">Want a future format? The shared rules engine is being structured for other chess variants and games.</p>
+      </section>
+      <section class="tab-panel hidden" id="panel-account" role="tabpanel" aria-labelledby="tab-account">
+        <div class="panel-eyebrow">PLAYER IDENTITY</div>
+        <h2>Your Quadra account</h2>
+        <p class="panel-desc">Choose a nickname, not your real name. No email or payment information is required.</p>
+        <div id="authGuest">
+          <div class="field"><label for="authUsername" class="field-label">USERNAME</label><input id="authUsername" class="input" maxlength="20" minlength="3" autocomplete="username" placeholder="3–20 characters"></div>
+          <div class="field"><label for="authPassword" class="field-label">PASSWORD</label><input id="authPassword" class="input" type="password" minlength="12" maxlength="128" autocomplete="current-password" placeholder="At least 12 characters"></div>
+          <div class="two-buttons"><button id="authLogin" type="button" class="button primary">Sign in</button><button id="authRegister" type="button" class="button ghost">Create account</button></div>
+          <p class="notice">Accounts are optional. You can always play as a guest. Never reuse a password from another website.</p>
+          <details class="advanced-game-actions">
+            <summary>Recover your account</summary>
+            <div class="field"><label class="field-label" for="authRecoveryInput">RECOVERY CODE</label><input class="input" id="authRecoveryInput" autocomplete="off" placeholder="Your saved recovery code"></div>
+            <div class="field"><label class="field-label" for="authNewPassword">NEW PASSWORD</label><input class="input" id="authNewPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password"></div>
+            <button type="button" class="button ghost full" id="authRecover">Reset password with code</button>
+          </details>
+        </div>
+        <div class="hidden" id="authSignedIn">
+          <div class="account-identity"><span class="avatar" id="accountAvatar" aria-hidden="true">Q</span><div><strong id="accountName">Player</strong><p class="account-sub">Signed in · Private beta profile</p></div></div>
+          <div class="two-buttons"><button type="button" id="refreshAccountRooms" class="button ghost">Refresh rooms</button><button type="button" id="authLogout" class="button ghost">Sign out</button></div>
+          <div class="rule-divider"></div><h3>My private rooms</h3>
+          <p class="notice">Rooms linked to your account can be reopened from another device after signing in.</p>
+          <div class="archive-list" id="accountRoomList"></div>
+          <details class="advanced-game-actions">
+            <summary>Delete my account</summary>
+            <p class="notice">Account deletion is permanent. Your saved room files are not affected.</p>
+            <div class="field"><label class="field-label" for="authDeletePassword">CONFIRM PASSWORD</label><input id="authDeletePassword" class="input" type="password" autocomplete="current-password"></div>
+            <button id="authDelete" class="button danger full" type="button">Delete account permanently</button>
+          </details>
+        </div>
+        <div class="hidden" id="recoveryResult">
+          <div class="rule-divider"></div><h3>Save your recovery code</h3>
+          <p class="notice">This code is shown only now. Store it privately to recover your account without an email address.</p>
+          <p class="recovery-value" id="recoveryCodeValue"></p>
+          <button class="button ghost full" id="copyRecoveryCode" type="button">Copy recovery code</button>
+          <button class="button ghost full" id="dismissRecoveryCode" type="button">I have saved it</button>
+        </div>
+        <p class="online-status" id="accountStatus" role="status" aria-live="polite"></p>
+        <p class="notice">Beta accounts currently use a free database scheduled to expire December 9, 2026. Accounts and data may be lost then unless migrated.</p>
       </section>
       <div class="panel-foot"><span class="foot-dot"></span><span>Free to play · Private matches · Open beta</span></div>
     </aside>
