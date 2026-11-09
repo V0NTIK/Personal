@@ -126,7 +126,7 @@ async function expireTurn(r,t=now()){
  if(flag===null)return false;
  current.game=engine.eliminatePlayer(r.game,flag,"time");
  current.rev=r.rev+1;
- if(current.game.winner){current.clock.started=false;current.clock.activeSince=null;}
+ if(current.game.winner){current.clock.started=false;current.clock.activeSince=null;}else{current.clock.flag=null;current.clock.activeSince=t;}
  await commitRoom(r,current);
  return true;
 }
