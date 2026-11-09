@@ -206,7 +206,7 @@ function renderPlayers(g){
   const info=document.createElement("small");
   const material=initialsMaterial(g,c);
   const teamName=g.mode==="teams"?" · Team "+(team(c)+1):"";
-  const status=online?(online.seats?.[c]?.claimed?(online.seats[c].ready?" · Ready":online.seats[c].online?" · Here":" · Away"):" · Open"):"";
+  const status=online?(online.seats?.[c]?.claimed?(online.seats[c].ready?" · Ready":online.seats[c].online&&online.seats[c].viewing?" · Here":" · Away"):" · Open"):"";
   info.textContent=(online?.seats?.[c]?.alias?"@"+online.seats[c].alias+" · ":"")+(g.alive[c]?material.pieces+" pcs · "+material.n+" pts"+teamName+status:"Eliminated");
   el.append(name,info);
   if(online?.seats?.[c]?.role==="superuser")el.append(superuserBadge());
@@ -389,10 +389,10 @@ function renderChat(){
 function updateRoom(){
  const connected=!!online;
  $("roomDetails").classList.toggle("hidden",!connected);
- $("onlineLobby").classList.toggle("hidden",connected);
- $("createRoom").disabled=connected;
- $("joinRoom").disabled=connected;
- $("resumeRoom").classList.toggle("hidden",connected||!sessionCredentials());
+ $("onlineLobby").classList.remove("hidden");
+ $("createRoom").disabled=false;
+ $("joinRoom").disabled=false;
+ $("resumeRoom").classList.toggle("hidden",roomSessions.size>0||!sessionCredentials());
  if(!connected)return;
  $("roomId").textContent=online.room;
  $("roomDisplayTitle").textContent=online.title||"Quadra chess room";
@@ -460,7 +460,7 @@ function updateRoom(){
   if(online.hostSeat===c){const host=document.createElement("span");host.className="host-tag";host.textContent="HOST";name.append(host);}
   if(online.seats[c]?.role==="superuser")name.append(superuserBadge());
   const status=document.createElement("em");status.className="seat-presence";
-  status.textContent=online.seats[c]?.ready?"Ready":online.seats[c]?.online?"Here":online.seats[c]?.claimed?"Away":"Open";
+  status.textContent=online.seats[c]?.ready?"Ready":online.seats[c]?.online&&online.seats[c]?.viewing?"Here":online.seats[c]?.claimed?"Away":"Open";
   el.classList.add("seat-"+status.textContent.toLowerCase());
   if(online.seats[c]?.ready)el.classList.add("is-ready");
   el.append(dot,name,status);slots.append(el);
@@ -722,6 +722,7 @@ function connectRoom(data,options={}){
   accountBound,lastFocus:undefined,lastError:null,leaving:false};
  roomSessions.set(room,s);
  s.reconnect=socketConnect;
+ socketConnect();
  if(options.activate!==false)activateRoom(room);
  else{renderRoomManager();saveRoomRegistry();}
  function socketConnect(){
@@ -829,7 +830,6 @@ function connectRoom(data,options={}){
   };
   ws.onerror=()=>{s.lastError="Network interruption";if(online===s)onlineMessage("Network issue · reconnecting…");};
  }
- socketConnect();
 }
 async function roomRequest(path,payload){
  const controller=new AbortController();
