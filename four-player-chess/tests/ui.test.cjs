@@ -26,7 +26,7 @@ class MockElement{
 }
 function launch({storage=new Map(),url=""}={}){
  const nodes={};for(const id of ids)nodes[id]=new MockElement();
- const tabs=["play","moves","settings","rules"].map(tab=>{const node=nodes["tab-"+tab];node.dataset.tab=tab;return node;});
+ const tabs=["play","moves","settings","rules","account"].map(tab=>{const node=nodes["tab-"+tab];node.dataset.tab=tab;return node;});
  const document={
   getElementById:id=>nodes[id],
   createElement:()=>new MockElement(),
@@ -199,4 +199,48 @@ test("local resignation and agreed draw support undo and autosave",()=>{
  assert.equal(window.QuadraApp.getState().winner,null);
  nodes.undo.emit("click");
  assert.equal(window.QuadraApp.getState().alive[0],true);
+});
+
+test("game setup supports custom increment, named rooms and preferred colors",async()=>{
+ const {nodes,requests}=launch();
+ nodes.onlineMode.emit("click");
+ nodes.onlineClock.value="custom";
+ nodes.onlineClock.emit("change",{target:nodes.onlineClock});
+ assert.equal(nodes.customTimeFields.classList.contains("hidden"),false);
+ nodes.customMinutes.value="8";
+ nodes.customIncrement.value="3";
+ nodes.preferredSeat.value="2";
+ nodes.roomTitleInput.value="Weekend chess";
+ await nodes.createRoom.emit("click");
+ const payload=JSON.parse(requests[0].options.body);
+ assert.equal(payload.clock.type,"custom");
+ assert.equal(payload.clock.minutes,8);
+ assert.equal(payload.clock.incrementSeconds,3);
+ assert.equal(payload.seat,2);
+ assert.equal(payload.title,"Weekend chess");
+});
+test("four-seat readiness is explicit and can be withdrawn before a match starts",async()=>{
+ const {nodes,sockets}=launch();
+ nodes.onlineMode.emit("click");await nodes.createRoom.emit("click");
+ const ws=sockets[0];ws.onopen();ws.receive({type:"welcome",seat:0});
+ const seats=Array.from({length:4},(_,i)=>({color:i,claimed:true,online:true,ready:false}));
+ ws.receive({type:"state",revision:0,ready:false,filled:true,seatReady:[false,false,false,false],seats,game:Engine.fresh("ffa")});
+ assert.match(nodes.status.textContent,/Waiting for everyone/);
+ nodes.readyButton.emit("click");
+ assert.equal(ws.sent.at(-1).type,"ready");
+ seats[0].ready=true;
+ ws.receive({type:"state",revision:0,ready:false,filled:true,seatReady:[true,false,false,false],seats,game:Engine.fresh("ffa")});
+ assert.equal(nodes.readyButton.textContent,"Cancel ready");
+ nodes.readyButton.emit("click");
+ assert.equal(ws.sent.at(-1).type,"unready");
+ ws.receive({type:"state",revision:0,ready:true,filled:true,seatReady:[true,true,true,true],seats,game:Engine.fresh("ffa")});
+ assert.equal(nodes.readyControls.classList.contains("hidden"),true);
+ assert.equal(nodes.status.textContent,"Red to move");
+});
+test("Account tab is accessible without interfering with the playable board",()=>{
+ const {nodes,window}=launch();
+ nodes.headerAccount.emit("click");
+ assert.equal(nodes["tab-account"].attrs["aria-selected"],"true");
+ assert.equal(nodes["panel-account"].classList.contains("hidden"),false);
+ assert.equal(window.QuadraApp.getState().b.filter(Boolean).length,64);
 });
