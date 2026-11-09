@@ -92,6 +92,9 @@ function switchPanel(requested,scroll=false){
  }
  if(name!=="home"&&name!=="waiting"&&!PANELS.includes(name))return;
  if(name==="admin"&&window.QuadraAccount?.role?.()!=="superuser"){tell("Superuser sign-in required.");return;}
+ if(activePanel==="local"&&name!=="local"&&!online&&roomSessions.size){
+  backup={state:clone(state),stack:stack.map(clone),orientation};saveAuto();
+ }
  activePanel=name;
  if(typeof location.hash==="string"&&HASH_ROUTES[name]&&location.hash!==HASH_ROUTES[name])location.hash=HASH_ROUTES[name];
  const isHome=name==="home",isWaiting=name==="waiting",isMatch=["play","moves","review"].includes(name)&&!!online;
@@ -689,6 +692,26 @@ function leaveSpecificRoom(s){
 function onAccountChanged(){
  for(const s of [...roomSessions.values()])if(s.accountBound)dismissRoomSession(s);
  if(activePanel==="myrooms")refreshKnownRooms();
+}
+function restoreRoomRegistry(){
+ let saved=null;
+ try{saved=JSON.parse(sessionStorage.getItem(ROOM_MULTI_KEY)||"null");}catch(e){}
+ let entries=Array.isArray(saved?.sessions)?saved.sessions.slice(0,MAX_ACTIVE_ROOMS):[];
+ if(!entries.length){
+  const legacy=sessionCredentials();
+  if(legacy)entries=[{...legacy,accountBound:!legacy.token}];
+ }
+ const used=new Set();
+ for(const item of entries){
+  if(!item||typeof item.room!=="string"||!/^[A-F0-9]{7}$/.test(item.room)||used.has(item.room))continue;
+  if(!item.spectator&&(!Number.isInteger(item.seat)||item.seat<0||item.seat>3))continue;
+  if(!item.spectator&&!item.accountBound&&!(typeof item.token==="string"&&item.token.length>=32))continue;
+  if(item.spectator&&item.visibility==="private"&&!(typeof item.watchKey==="string"&&item.watchKey.length>=32))continue;
+  used.add(item.room);connectRoom(item,{activate:false});
+ }
+ if(["waiting","play","moves","review"].includes(activePanel)&&saved?.active&&roomSessions.has(saved.active))
+  activateRoom(saved.active);
+ else renderRoomManager();
 }
 function sessionCredentials(){
  try{
