@@ -289,6 +289,44 @@ function currentExport(){
   variant:online?.variant|| (state.mode==="teams"?"quadra-teams":"quadra-ffa"),
   mode:state.mode,game:state,events:online?.events||null,positions:online?null:localReplayFrames(),gameNo:online?.gameNo||null,clock:online?.clockPreset||"untimed"};
 }
+const hiddenChatIds=new Set();
+function renderChat(){
+ const host=$("chatList");host.replaceChildren();
+ if(!online)return;
+ const messages=online.messages||[];
+ if(!messages.length){const p=document.createElement("p");p.className="history-empty";p.textContent="No messages yet. Conversation history remains in this room between matches.";host.append(p);return;}
+ const username=window.QuadraAccount?.username();
+ const canReport=!!username&&!online.spectator&&online.seats[online.seat]?.alias===username;
+ const isHost=!online.spectator&&online.seat===online.hostSeat;
+ for(const m of messages){
+  const el=document.createElement("article");el.className="chat-message"+(m.hidden?" removed":"");
+  const heading=document.createElement("div");heading.className="chat-byline";
+  const name=document.createElement("strong");name.textContent=m.alias?"@"+m.alias:"Player";
+  const time=document.createElement("span");time.textContent=new Date(m.at).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+  heading.append(name,time);
+  const text=document.createElement("p");text.className="chat-text";
+  text.textContent=hiddenChatIds.has(m.id)?"Hidden on this device":m.text;
+  const actions=document.createElement("div");actions.className="chat-actions";
+  if(!m.hidden){
+   const hide=document.createElement("button");hide.type="button";hide.textContent="Hide";
+   hide.addEventListener("click",()=>{hiddenChatIds.add(m.id);renderChat();});actions.append(hide);
+   if(canReport&&m.alias!==username){
+    const report=document.createElement("button");report.type="button";report.textContent="Report";
+    report.addEventListener("click",()=>{if(online?.connected){online.ws.send(JSON.stringify({type:"chat-report",id:m.id}));tell("Message reported.");}});
+    actions.append(report);
+   }
+   if(isHost){
+    const remove=document.createElement("button");remove.type="button";remove.textContent="Remove";
+    remove.addEventListener("click",()=>online?.ws?.send(JSON.stringify({type:"moderate",action:"remove",id:m.id})));
+    const mute=document.createElement("button");mute.type="button";mute.textContent="Mute";
+    mute.addEventListener("click",()=>{if(confirm("Mute @"+m.alias+" from this room?"))online?.ws?.send(JSON.stringify({type:"moderate",action:"mute",id:m.id}));});
+    actions.append(remove,mute);
+   }
+  }
+  el.append(heading,text,actions);host.append(el);
+ }
+ if(Number.isFinite(host.scrollHeight))host.scrollTop=host.scrollHeight;
+}
 function updateRoom(){
  const connected=!!online;
  $("roomDetails").classList.toggle("hidden",!connected);
@@ -565,6 +603,7 @@ function copyInvite(){
 function bind(){
  for(const button of document.querySelectorAll("[data-tab]"))button.addEventListener("click",()=>switchPanel(button.dataset.tab,false));
  $("headerHelp").addEventListener("click",()=>switchPanel("rules",true));
+ $("headerRooms").addEventListener("click",()=>switchPanel("rooms",true));
  $("headerAccount").addEventListener("click",()=>switchPanel("account",true));
  $("onlineClock").addEventListener("change",e=>$("customTimeFields").classList.toggle("hidden",e.target.value!=="custom"));
  $("localMode").addEventListener("click",()=>switchLocation("local"));
@@ -606,11 +645,23 @@ function bind(){
  $("resetPreferences").addEventListener("click",()=>{prefs={...initialPrefs};updateTheme();saveSettings();render();tell("Appearance reset.");});
  $("cancelpromo").addEventListener("click",()=>{pending=null;promotionEl.classList.add("hidden");});
  $("createRoom").addEventListener("click",()=>enterRoom("create"));
+ $("roomsCreate").addEventListener("click",()=>{switchPanel("play",true);switchLocation("online");});
  $("joinRoom").addEventListener("click",()=>enterRoom("join"));
  $("readyButton").addEventListener("click",()=>{if(!online?.connected||online.ready)return;
   const type=online.seatReady?.[online.seat]?"unready":"ready";online.ws.send(JSON.stringify({type}));onlineMessage(type==="ready"?"Ready confirmation submitted.":"Ready confirmation cancelled.");});
  $("roomInput").addEventListener("input",e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-F0-9]/g,"").slice(0,7);});
  $("copyInvite").addEventListener("click",copyInvite);
+ $("copySpectatorInvite").addEventListener("click",copySpectatorInvite);
+ $("rotateWatchLink").addEventListener("click",()=>{if(online?.connected&&!online.spectator&&online.seat===online.hostSeat)online.ws.send(JSON.stringify({type:"spectator-key-rotate"}));});
+ $("nextRound").addEventListener("click",()=>{if(online?.connected&&!online.spectator&&online.seat===online.hostSeat&&state.winner&&confirm("Open a fresh match in this room? Chat and archived matches will stay."))online.ws.send(JSON.stringify({type:"new-round"}));});
+ $("sendChat").addEventListener("click",()=>{
+  if(!online?.connected||online.spectator){tell("Join as a player to chat.");return;}
+  if(!window.QuadraAccount?.token()){tell("Sign in to use room chat.");switchPanel("account",true);return;}
+  const text=$("chatInput").value.trim();
+  if(!text||text.length>240){tell("Enter a message under 240 characters.");return;}
+  online.ws.send(JSON.stringify({type:"chat",text}));$("chatInput").value="";
+ });
+ $("chatInput").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("sendChat").click();}});
  $("rematchRoom").addEventListener("click",()=>{if(!online||!online.connected||!state.winner||online.rematch?.[online.seat])return;online.ws.send(JSON.stringify({type:"rematch"}));tell("Rematch vote sent.");});
  $("drawVote").addEventListener("click",()=>{
   if(!online?.connected||!online.ready||state.winner||!state.alive[online.seat]||online.drawVotes?.[online.seat])return;
