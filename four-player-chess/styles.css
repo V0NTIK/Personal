@@ -77,7 +77,7 @@ p{line-height:1.65;color:var(--soft)}
 .lower-info a{color:#b9cabd;text-decoration:none}
 .lower-info a:hover{text-decoration:underline}
 .sidebar{background:var(--card);border:1px solid var(--stroke);border-radius:17px;overflow:hidden;box-shadow:var(--shadow);min-width:0;position:sticky;top:18px}
-.tabs{display:grid;grid-template-columns:repeat(4,1fr);padding:7px;gap:3px;background:#101923;border-bottom:1px solid #263442}
+.tabs{display:grid;grid-template-columns:repeat(5,1fr);padding:7px;gap:3px;background:#101923;border-bottom:1px solid #263442}
 .tab{border:0;background:transparent;border-radius:8px;color:#899aab;font-size:11px;font-weight:800;padding:11px 4px;min-width:0}
 .tab:hover{color:#eef6ef;background:#1e2934}
 .tab[aria-selected="true"]{background:#294137;color:#d8f6e6}
@@ -177,3 +177,21 @@ p{line-height:1.65;color:var(--soft)}
 .advanced-game-actions summary:after{content:"⌄";float:right;color:#99b7a5}
 .advanced-game-actions[open] summary:after{content:"⌃"}
 .advanced-game-actions .two-buttons{padding:1px 0 12px}
+
+/* Version 0.6 — accounts, lobby readiness and custom challenges */
+.ready-controls{display:grid;gap:8px;margin:10px 0;border-top:1px solid #305047;padding-top:12px}
+.ready-controls .room-help{margin:0;line-height:1.6}
+.room-seat.is-ready{border-color:#5a9e79;background:#1d3430}
+.room-seat .ready-mark{font-size:10px;color:#a4e9bf}
+.account-identity{display:flex;gap:12px;align-items:center;padding:15px 12px;margin:12px 0 18px;background:#192d31;border:1px solid #38574f;border-radius:12px}
+.account-identity strong{font-size:15px;color:#e2f6e7}
+.account-identity .avatar{width:42px;height:42px;display:grid;place-items:center;border-radius:11px;background:#3d7960;color:#f0fff1;font-size:20px;font-weight:800;flex:none}
+.account-sub{margin:3px 0 0;color:#a1b7ad;font-size:11px}
+.recovery-value{font-size:12px;overflow-wrap:anywhere;padding:12px;background:#0e1c26;border:1px solid #456153;border-radius:9px;color:#bdf4d6;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+#recoveryResult .button{margin-top:8px}
+#accountRoomList{margin:12px 0 20px}
+#accountRoomList .archive-row{gap:8px}
+#accountRoomList .button{font-size:10px}
+#customTimeFields .field{margin:0}
+#customTimeFields{margin:-5px 0 15px}
+@media(max-width:540px){.tab{font-size:10px}.account-identity{padding:11px}}
