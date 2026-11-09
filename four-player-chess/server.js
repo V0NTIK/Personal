@@ -48,7 +48,7 @@ function readBody(req){
   req.on("error",e=>{if(!settled)reject(e);});
  });
 }
-function sealedSeat(raw,ws=null){return {tokenHash:sha(raw),ws};}
+function sealedSeat(raw,ws=null){return {tokenHash:sha(raw),ws,lastSeen:now()};}
 function seatSummary(r){return r.seats.map((s,i)=>({color:i,claimed:!!s,online:!!(s?.ws&&s.ws.readyState===WebSocket.OPEN)}));}
 const ready=r=>r.seats.every(Boolean);
 function snapshot(r){
@@ -116,7 +116,7 @@ function authentic(ws,msg){
  const hashed=sha(msg.token);
  if(hashed.length!==seat.tokenHash.length||!crypto.timingSafeEqual(Buffer.from(hashed),Buffer.from(seat.tokenHash)))return false;
  if(seat.ws&&seat.ws!==ws&&seat.ws.readyState===WebSocket.OPEN)seat.ws.close(4001,"Connected from another browser");
- seat.ws=ws;ws.room=r;ws.seat=msg.seat;r.updated=now();
+ seat.ws=ws;seat.lastSeen=now();ws.room=r;ws.seat=msg.seat;r.updated=now();
  emit(ws,{type:"welcome",room:r.id,seat:msg.seat,protocol:2,persistent:store.persistent});
  broadcast(r);return true;
 }
@@ -214,6 +214,23 @@ async function handleVacate(r,seat,ws){
   }catch(e){emit(ws,{type:"error",error:"Could not release your seat. Retry when connected."});}
  });
 }
+const LOBBY_RECLAIM_MS=30*60*1000;
+async function reclaimLobbySeats(r,t=now()){
+ if(ready(r)||r.game.moves.length)return 0;
+ return lockRoom(r,async()=>{
+  if(ready(r))return 0;
+  const seats=r.seats.slice();
+  let count=0;
+  for(let i=0;i<4;i++){
+   const seat=seats[i];
+   if(seat&&!seat.ws&&t-(seat.lastSeen||r.updated)>LOBBY_RECLAIM_MS){
+    seats[i]=null;count++;
+   }
+  }
+  if(count)await commitRoom(r,{...r,seats,updated:t});
+  return count;
+ });
+}
 function sendArchive(r,gameNo,ws){
  if(!Number.isInteger(gameNo))return emit(ws,{type:"error",error:"Invalid archive request."});
  const a=r.archives.find(x=>x.gameNo===gameNo);
@@ -281,7 +298,7 @@ wss.on("connection",ws=>{
  });
  ws.on("close",()=>{
   clearTimeout(timeout);const r=ws.room;
-  if(r?.seats[ws.seat]?.ws===ws){r.seats[ws.seat].ws=null;broadcast(r);}
+  if(r?.seats[ws.seat]?.ws===ws){r.seats[ws.seat].ws=null;r.seats[ws.seat].lastSeen=now();broadcast(r);}
  });
  ws.on("error",()=>{});
 });
@@ -305,6 +322,7 @@ const cleanup=setInterval(async()=>{
    rooms.delete(key);
   }
  }
+ for(const r of rooms.values())if(!ready(r))reclaimLobbySeats(r,t).catch(err=>console.error("Lobby reclamation failed:",err.message));
  for(const [ip,v] of rates)if(t-v.t>120000)rates.delete(ip);
  try{await store.cleanup();}catch(e){console.error("Room cleanup failed:",e.message);}
 },60000);
@@ -324,4 +342,4 @@ async function startServer(){
 }
 if(require.main===module)startServer().catch(err=>{console.error("Server startup failed:",err.message);process.exitCode=1;});
 process.on("SIGTERM",shutdown);
-module.exports={app,wss,rooms,store,createRoom,joinRoom,snapshot,shutdown,startServer,expireTurn};
+module.exports={app,wss,rooms,store,createRoom,joinRoom,snapshot,shutdown,startServer,expireTurn,reclaimLobbySeats,LOBBY_RECLAIM_MS};
