@@ -21,6 +21,12 @@ test("private room joins and server-authoritative moves over WebSockets",async()
   const full=await post("/api/rooms/"+created.json.room+"/join",{});assert.equal(full.status,409);
   for(const p of players){const ws=new WebSocket("ws://127.0.0.1:"+port+"/ws");clients.push(ws);await once(ws,"open");const welcome=nextMessage(ws,m=>m.type==="welcome");const initial=nextMessage(ws,m=>m.type==="state");ws.send(JSON.stringify({type:"hello",room:p.room,seat:p.seat,token:p.token}));assert.equal((await welcome).seat,p.seat);assert.equal((await initial).revision,0);}
   const [red,blue]=clients;
+  assert.equal(rooms.get(created.json.room).started,false);
+  const allReady=nextMessage(red,msg=>msg.type==="state"&&msg.ready===true);
+  for(const ws of clients)ws.send(JSON.stringify({type:"ready"}));
+  const readyPosition=await allReady;
+  assert.equal(readyPosition.seatReady.filter(Boolean).length,4);
+  assert.equal(rooms.get(created.json.room).started,true);
   const illegal=nextMessage(blue,m=>m.type==="error");blue.send(JSON.stringify({type:"move",revision:0,from:0,to:1}));assert.match((await illegal).error,/Not your turn/);
   const start=Engine.fresh(),m=Engine.legal(start,0)[0],updated=nextMessage(red,msg=>msg.type==="state"&&msg.revision===1);red.send(JSON.stringify({type:"move",revision:0,from:m.from,to:m.to}));const position=await updated;assert.equal(position.game.turn,1);assert.equal(position.game.moves.length,1);
   const stale=nextMessage(red,msg=>msg.type==="error");red.send(JSON.stringify({type:"move",revision:0,from:m.from,to:m.to}));assert.match((await stale).error,/Position changed/);
@@ -38,8 +44,9 @@ test("private room joins and server-authoritative moves over WebSockets",async()
   assert.equal(timed.json.variant,"quadra-teams");
   const timedRoom=rooms.get(timed.json.room);
   assert.equal(timedRoom.clock.started,false);
-  for(let i=1;i<4;i++)await post("/api/rooms/"+timed.json.room+"/join",{});
-  assert.equal(timedRoom.clock.started,true);
+  const timedPlayers=[timed.json];
+  for(let i=1;i<4;i++){const joined=await post("/api/rooms/"+timed.json.room+"/join",{});timedPlayers.push(joined.json);}
+  assert.equal(timedRoom.clock.started,false);
   // Draw agreements require every still-active seat; votes are persisted, then the game ends.
   const firstVote=nextMessage(red,x=>x.type==="state"&&x.drawVotes?.[0]===true);
   red.send(JSON.stringify({type:"draw-vote"}));
@@ -88,6 +95,17 @@ test("private room joins and server-authoritative moves over WebSockets",async()
   assert.equal(reclaimRoom.seats[1],null);
   assert.equal(reclaimRoom.seats[0]!==null,true);
   assert.equal(await reclaimLobbySeats(timedRoom,Date.now()+LOBBY_RECLAIM_MS*2),0);
+  const timedSockets=[];
+  for(const player of timedPlayers){
+   const ws=new WebSocket("ws://127.0.0.1:"+port+"/ws");clients.push(ws);timedSockets.push(ws);await once(ws,"open");
+   const welcome=nextMessage(ws,x=>x.type==="welcome");
+   ws.send(JSON.stringify({type:"hello",room:player.room,seat:player.seat,token:player.token}));
+   await welcome;
+  }
+  const clockStart=nextMessage(timedSockets[0],x=>x.type==="state"&&x.ready===true);
+  for(const ws of timedSockets)ws.send(JSON.stringify({type:"ready"}));
+  await clockStart;
+  assert.equal(timedRoom.clock.started,true);
   timedRoom.clock.remaining[0]=1000;
   timedRoom.clock.activeSince=Date.now()-1100;
   assert.equal(await expireTurn(timedRoom,Date.now()),true);
@@ -95,5 +113,15 @@ test("private room joins and server-authoritative moves over WebSockets",async()
   assert.equal(timedRoom.game.turn,1);
   assert.equal(timedRoom.clock.flag,null);
   assert.equal(timedRoom.clock.started,true);
+  const custom=await post("/api/rooms",{mode:"ffa",seat:2,title:"Friday Chess",clock:{type:"custom",minutes:7,incrementSeconds:3}});
+  assert.equal(custom.status,201);
+  assert.equal(custom.json.seat,2);
+  assert.equal(custom.json.title,"Friday Chess");
+  assert.equal(rooms.get(custom.json.room).clock.initialMs,420000);
+  assert.equal(rooms.get(custom.json.room).clock.incrementMs,3000);
+  const chosen=await post("/api/rooms/"+custom.json.room+"/join",{seat:0});
+  assert.equal(chosen.json.seat,0);
+  const occupied=await post("/api/rooms/"+custom.json.room+"/join",{seat:2});
+  assert.equal(occupied.status,409);
  }finally{for(const ws of clients)ws.terminate();shutdown();}
 });
