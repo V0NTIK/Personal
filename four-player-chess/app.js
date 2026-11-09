@@ -13,7 +13,7 @@ const pieceNames={k:"king",q:"queen",r:"rook",b:"bishop",n:"knight",p:"pawn"};
 const initialPrefs={theme:"sage",hints:true,coords:true,follow:false};
 let prefs={...initialPrefs};
 let state=fresh("ffa"),stack=[],selected=-1,targets=[],pending=null,orientation=0;
-let online=null,backup=null,retryTimer=null,reviewIndex=null,activePanel="play",playLocation="local",toastTimer=null;
+let online=null,backup=null,retryTimer=null,reviewIndex=null,activePanel="rooms",playLocation="local",toastTimer=null;
 
 function tell(message){
  const el=$("toast");el.textContent=message;el.classList.remove("hidden");
@@ -67,14 +67,17 @@ function updateTheme(){
  $("autoRotate").checked=!!prefs.follow;
 }
 function switchPanel(name,scroll){
- if(!["play","moves","settings","rules","account"].includes(name))return;
+ if(!["rooms","play","moves","review","community","settings","rules","account"].includes(name))return;
  activePanel=name;
- for(const id of ["play","moves","settings","rules","account"]){
+ for(const id of ["rooms","play","moves","review","community","settings","rules","account"]){
   const active=id===name;
   $("panel-"+id).classList.toggle("hidden",!active);
   $("tab-"+id).setAttribute("aria-selected",String(active));
   $("tab-"+id).tabIndex=active?0:-1;
  }
+ if(name==="rooms")window.QuadraCommunity?.loadRooms?.();
+ if(name==="community")window.QuadraCommunity?.loadLeaders?.();
+ if(name==="review")window.QuadraCommunity?.refreshReview?.();
  if(scroll&&window.matchMedia&&window.matchMedia("(max-width: 940px)").matches){
   $("controls").scrollIntoView({behavior:"smooth",block:"start"});
  }
@@ -142,7 +145,7 @@ function renderPlayers(g){
   const name=document.createElement("div");name.className="pname";
   const dot=document.createElement("span");dot.className="dot";dot.style.background=playerColors[c];
   name.append(dot,document.createTextNode(names[c]));
-  if(online&&online.seat===c){const you=document.createElement("span");you.className="you-pill";you.textContent="YOU";name.append(you);}
+  if(online&&!online.spectator&&online.seat===c){const you=document.createElement("span");you.className="you-pill";you.textContent="YOU";name.append(you);}
   const info=document.createElement("small");
   const material=initialsMaterial(g,c);
   const teamName=g.mode==="teams"?" · Team "+(team(c)+1):"";
@@ -215,6 +218,7 @@ function renderStatus(g){
  else if(g.winner)hint="Game over. Open Moves to review the game.";
  else if(online&&!online.connected)hint="Reconnecting. Moves will resume when your connection returns.";
  else if(online&&!online.ready)hint=online.filled?"All four players must press Ready to start.":"Invite friends to claim the remaining seats.";
+ else if(online?.spectator)hint="Spectator view · "+names[g.turn]+" is to move. You cannot make moves.";
  else if(online&&g.turn!==online.seat)hint="It's "+names[g.turn]+"'s turn. You're playing "+names[online.seat]+".";
  else if(selected>=0)hint=targets.length?targets.length+" legal destinations. Choose one.":"This piece has no legal moves. Try another.";
  $("boardHint").textContent=hint;
@@ -294,31 +298,44 @@ function updateRoom(){
  $("resumeRoom").classList.toggle("hidden",connected||!sessionCredentials());
  if(!connected)return;
  $("roomId").textContent=online.room;
- $("roomDisplayTitle").textContent=online.title||"Casual private match";
- $("readyControls").classList.toggle("hidden",online.ready);
+ $("roomDisplayTitle").textContent=online.title||"Quadra chess room";
+ $("roomAccessLabel").textContent=(online.visibility==="public"?"PUBLIC":"PRIVATE")+" ROOM";
+ $("roomModeLabel").textContent=(online.visibility==="public"?"Public":"Private")+" · "+(online.rated?"Provisional rated":"Casual");
+ $("roomSpectators").textContent=(online.spectatorCount||0)+" watching";
+ const isSpectator=!!online.spectator;
+ $("copySpectatorInvite").disabled=online.visibility==="private"&&!online.spectatorKey;
+ $("rotateWatchLink").classList.toggle("hidden",isSpectator||online.seat!==online.hostSeat);
+ $("copyInvite").classList.toggle("hidden",isSpectator);
+ $("nextRoundControls").classList.toggle("hidden",!state.winner||isSpectator||online.seat!==online.hostSeat);
+ $("nextRound").disabled=!online.connected;
+ $("chatComposer").classList.toggle("hidden",isSpectator||!window.QuadraAccount?.token());
+ $("chatScopeLabel").textContent=isSpectator?"Watch-only · no posting":"Keeps going between matches";
+ $("chatPolicy").textContent=isSpectator?"Spectators can read but cannot post.":"Only signed-in players can post. No links or personal contact details. Report inappropriate messages.";
+ renderChat();
+ $("readyControls").classList.toggle("hidden",online.ready||isSpectator);
  const readyCount=(online.seatReady||[]).filter(Boolean).length;
  $("readyStatus").textContent=online.ready?"Match started":readyCount+" of 4 ready · "+(online.filled?"Waiting for confirmation":"Waiting for remaining seats");
- $("readyButton").disabled=!online.connected||!online.seats[online.seat]?.claimed;
+ $("readyButton").disabled=!online.connected||isSpectator||!online.seats[online.seat]?.claimed;
  $("readyButton").textContent=online.seatReady?.[online.seat]?"Cancel ready":"I’m ready";
 
  $("roomClockName").textContent=clockLabel(online);
  $("roomStorage").textContent=online.persistent?"Database · beta":"Temporary memory";
  $("storageNotice").textContent=online.persistent?"Beta database storage is enabled. This free database expires December 9, 2026; export important games.":"This server currently stores rooms in memory. Games may disappear when it restarts.";
- $("rematchControls").classList.toggle("hidden",!state.winner);
- $("matchActions").classList.toggle("hidden",!online.ready||!!state.winner);
+ $("rematchControls").classList.toggle("hidden",!state.winner||isSpectator);
+ $("matchActions").classList.toggle("hidden",isSpectator||!online.ready||!!state.winner);
  $("resignRoom").disabled=!online.connected||!state.alive[online.seat];
  $("drawVote").disabled=!online.connected||!state.alive[online.seat]||!!online.drawVotes?.[online.seat];
  $("drawVote").textContent=online.drawVotes?.[online.seat]?"Draw vote submitted":"Offer / agree to draw";
  $("drawVotesStatus").textContent=(online.drawVotes||[]).filter(Boolean).length+" / "+state.alive.filter(Boolean).length+" active players agree";
- $("leaveRoom").textContent=online.ready?"Disconnect · keep my seat":"Leave lobby · release seat";
+ $("leaveRoom").textContent=isSpectator?"Leave spectator view":online.ready?"Disconnect · keep my seat":"Leave lobby · release seat";
  if(state.winner){const votes=(online.rematch||[]).filter(Boolean).length;$("rematchVotes").textContent=votes+" / 4 players ready to restart";$("rematchRoom").disabled=!!online.rematch?.[online.seat]||!online.connected;$("rematchRoom").textContent=online.rematch?.[online.seat]?"Rematch vote sent":"Vote for rematch";}
- $("mySeat").textContent=names[online.seat];
+ $("mySeat").textContent=isSpectator?"Spectator":names[online.seat];
  $("roomInput").value=online.room;
  const slots=$("roomSeats");slots.replaceChildren();
  for(let c=0;c<4;c++){
   const el=document.createElement("div");el.className="room-seat";
   const dot=document.createElement("span");dot.className="dot";dot.style.background=playerColors[c];
-  const name=document.createElement("span");name.textContent=names[c]+(online.seat===c?" (you)":"")+(online.seats[c]?.alias?" · @"+online.seats[c].alias:"");
+  const name=document.createElement("span");name.textContent=names[c]+(!isSpectator&&online.seat===c?" (you)":"")+(online.seats[c]?.alias?" · @"+online.seats[c].alias:"");
   const status=document.createElement("em");
   status.textContent=online.seats[c]?.ready?"Ready":online.seats[c]?.online?"Here":online.seats[c]?.claimed?"Away":"Open";
   if(online.seats[c]?.ready)el.classList.add("is-ready");
