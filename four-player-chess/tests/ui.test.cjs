@@ -15,8 +15,19 @@ class MockElement{
   const set=new Set();
   this.classList={add(...v){v.forEach(x=>set.add(x))},remove(...v){v.forEach(x=>set.delete(x))},toggle(k,force){const state=force===undefined?!set.has(k):!!force;state?set.add(k):set.delete(k);return state;},contains:k=>set.has(k)};
  }
- append(...v){this.children.push(...v);}
- replaceChildren(...v){this.children=[...v];}
+ append(...v){
+  for(const item of v){
+   if(item instanceof MockElement){
+    if(item.parentElement)item.parentElement.children=item.parentElement.children.filter(x=>x!==item);
+    item.parentElement=this;
+   }
+   this.children.push(item);
+  }
+ }
+ replaceChildren(...v){
+  for(const child of this.children)if(child instanceof MockElement&&child.parentElement===this)child.parentElement=null;
+  this.children=[];this.append(...v);
+ }
  addEventListener(name,fn){this.events[name]=fn;}
  setAttribute(k,v){this.attrs[k]=v;}
  get firstElementChild(){return this.children[0];}
@@ -26,7 +37,7 @@ class MockElement{
 }
 function launch({storage=new Map(),url=""}={}){
  const nodes={};for(const id of ids)nodes[id]=new MockElement();
- const tabs=["rooms","play","moves","review","community","settings","rules","account"].map(tab=>{const node=nodes["tab-"+tab];node.dataset.tab=tab;return node;});
+ const tabs=["local","create","rooms","play","moves","review","community","settings","rules","account","admin"].map(tab=>{const node=nodes["tab-"+tab];node.dataset.tab=tab;return node;});
  const document={
   getElementById:id=>nodes[id],
   createElement:()=>new MockElement(),
@@ -45,16 +56,20 @@ function launch({storage=new Map(),url=""}={}){
   close(){this.readyState=3;}
   receive(value){this.onmessage?.({data:JSON.stringify(value)});}
  }
- const window={QuadraCore:Engine,matchMedia:()=>({matches:false}),addEventListener(){}};
+ const windowEvents={};
+ const window={QuadraCore:Engine,matchMedia:()=>({matches:false}),
+  addEventListener(name,fn){windowEvents[name]=fn;},
+  fire(name){return windowEvents[name]?.();}
+ };
  const navigator={clipboard:{writeText:async()=>{}}};
- const location={origin:"https://quadra-chess.onrender.com",pathname:"/",search:url};
+ const location={origin:"https://quadra-chess.onrender.com",pathname:"/",search:url,hash:"#/home"};
  const requests=[];
  const fetch=async(url,options)=>{requests.push({url,options});if(url.endsWith("/api/rooms"))return {ok:true,json:async()=>({room:"ABC1234",seat:0,token:"t".repeat(43),mode:"ffa",revision:0})};return {ok:true,json:async()=>({room:"ABC1234",seat:1,token:"q".repeat(43),mode:"ffa",revision:0})};};
  const context={window,document,localStorage,sessionStorage,navigator,location,URLSearchParams,WebSocket:FakeSocket,fetch,AbortController,
  setTimeout:()=>1,clearTimeout:()=>{},setInterval:()=>{},confirm:()=>true,prompt:()=>{}};
  vm.runInNewContext(replaySource,context,{filename:"replay.js",timeout:5000});
  vm.runInNewContext(source,context,{filename:"app.js",timeout:5000});
- return {nodes,window,storage,sockets,requests,document,sessionStorage};
+ return {nodes,window,storage,sockets,requests,document,sessionStorage,location};
 }
 function square(nodes,index){return nodes.board.children.find(c=>c.dataset.square===String(index));}
 test("all required IDs exist uniquely and board renders 196 cells and four player cards",()=>{
@@ -104,7 +119,7 @@ test("settings change board colors and legal destination visibility",()=>{
 test("private online room handshake gates moves and submits server move",async()=>{
  const {nodes,sockets,requests}=launch();
  nodes.onlineMode.emit("click");
- assert.equal(nodes.onlineMode.attrs["aria-pressed"],"true");
+ assert.equal(nodes["panel-create"].classList.contains("hidden"),false);
  await nodes.createRoom.emit("click");
  assert.equal(requests.length,1);
  assert.equal(sockets.length,1);
@@ -181,7 +196,7 @@ test("disconnecting a pregame lobby sends a seat release request",async()=>{
  assert.equal(ws.sent.at(-1).type,"vacate");
  ws.receive({type:"vacated"});
  assert.equal(sessionStorage.getItem("quadra-online"),null);
- assert.equal(nodes.localMode.attrs["aria-pressed"],"true");
+ assert.equal(nodes["tab-rooms"].attrs["aria-selected"],"true");
 });
 
 test("local resignation and agreed draw support undo and autosave",()=>{
@@ -311,11 +326,61 @@ test("home hub, global pages and contextual game navigation remain accessible",(
  nodes.headerHome.emit("click");
  assert.equal(nodes.homeScreen.classList.contains("hidden"),false);
 });
-test("one-code room joining bypasses the advanced room host form",async()=>{
+test("room setup page offers code joining without mixing it into local play or the public lobby",async()=>{
  const {nodes,requests,window}=launch();
- nodes.homeJoinCode.value="abc1234";
- await nodes.homeJoin.emit("click");
+ nodes.headerRooms.emit("click");
+ assert.equal(nodes["panel-rooms"].classList.contains("hidden"),false);
+ assert.equal(nodes["panel-create"].classList.contains("hidden"),true);
+ nodes.headerCreate.emit("click");
+ assert.equal(nodes["panel-create"].classList.contains("hidden"),false);
+ assert.equal(nodes.arena.classList.contains("hidden"),true);
+ nodes.quickJoinCode.value="abc1234";
+ await nodes.quickJoinButton.emit("click");
  assert.equal(requests.some(r=>r.url.endsWith("/api/rooms/ABC1234/join")),true);
  assert.equal(window.QuadraApp.isOnline(),true);
+ assert.equal(nodes.waitingRoomScreen.classList.contains("hidden"),false);
+ assert.equal(nodes.arena.classList.contains("hidden"),true);
+});
+test("pregame room and active match use separate UI states and transition on authoritative updates",async()=>{
+ const {nodes,sockets}=launch();
+ nodes.headerCreate.emit("click");
+ await nodes.createRoom.emit("click");
+ assert.equal(nodes.waitingRoomScreen.classList.contains("hidden"),false);
+ assert.equal(nodes.workLayout.classList.contains("hidden"),true);
+ const ws=sockets[0];ws.onopen();ws.receive({type:"welcome",seat:0});
+ const seats=Array.from({length:4},(_,i)=>({color:i,claimed:true,online:true,ready:false,alias:i===0?"orlandowyman":null,role:i===0?"superuser":"user"}));
+ ws.receive({type:"state",revision:0,ready:false,filled:true,seatReady:[true,false,false,false],seats,game:Engine.fresh()});
+ assert.equal(nodes.waitingReadyCount.textContent,"1 / 4");
+ assert.equal(nodes.waitingOccupancy.textContent,"4 / 4");
+ assert.equal(nodes.readyControls.classList.contains("hidden"),false);
+ assert.equal(nodes.matchActions.classList.contains("hidden"),true);
+ assert.equal(nodes.waitingRoomContent.children.at(-1),nodes.roomDetails);
+ assert.equal(nodes.roomDetails.parentElement,nodes.waitingRoomContent);
+ assert.ok(nodes.roomSeats.children[0].children[1].children.some(c=>c.className==="superuser-badge"));
+ ws.receive({type:"state",revision:0,ready:true,filled:true,seatReady:[true,true,true,true],seats,game:Engine.fresh()});
+ assert.equal(nodes.waitingRoomScreen.classList.contains("hidden"),true);
+ assert.equal(nodes.workLayout.classList.contains("hidden"),false);
+ assert.equal(nodes.arena.classList.contains("hidden"),false);
  assert.equal(nodes["panel-play"].classList.contains("hidden"),false);
+ assert.equal(nodes.roomDetails.parentElement,nodes.onlineControls);
+ assert.equal(nodes.readyControls.classList.contains("hidden"),true);
+ assert.ok(nodes.players.children[0].children.some(c=>c.className==="superuser-badge"));
+ ws.receive({type:"state",revision:1,ready:false,filled:true,seatReady:[false,false,false,false],seats,game:Engine.fresh()});
+ assert.equal(nodes.waitingRoomScreen.classList.contains("hidden"),false);
+ assert.equal(nodes.arena.classList.contains("hidden"),true);
+});
+
+
+test("separate page URLs track navigation and browser-back routes",()=>{
+ const {nodes,window,location}=launch();
+ nodes.headerCreate.emit("click");
+ assert.equal(location.hash,"#/setup");
+ assert.equal(nodes["panel-create"].classList.contains("hidden"),false);
+ nodes.headerPlay.emit("click");
+ assert.equal(location.hash,"#/local");
+ assert.equal(nodes["panel-local"].classList.contains("hidden"),false);
+ location.hash="#/lobby";window.fire("hashchange");
+ assert.equal(nodes["panel-rooms"].classList.contains("hidden"),false);
+ location.hash="#/home";window.fire("hashchange");
+ assert.equal(nodes.homeScreen.classList.contains("hidden"),false);
 });

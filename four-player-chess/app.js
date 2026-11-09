@@ -20,7 +20,11 @@ function tell(message){
  if(toastTimer)clearTimeout(toastTimer);
  toastTimer=setTimeout(()=>el.classList.add("hidden"),3300);
 }
-function onlineMessage(message){$("onlineStatus").textContent=message;}
+function onlineMessage(message){
+ $("onlineStatus").textContent=message;
+ $("setupStatus").textContent=message;
+ if(activePanel==="waiting")$("waitingStatus").textContent=message;
+}
 function safeState(s){
  if(!s||!Array.isArray(s.b)||s.b.length!==N*N||!Array.isArray(s.alive)||s.alive.length!==4||!Array.isArray(s.moves)||s.moves.length>3000||!Number.isInteger(s.turn)||s.turn<0||s.turn>3||!["ffa","teams"].includes(s.mode))return false;
  return s.b.every(p=>p===null||(p&&"prnbqk".includes(p.p)&&p.p.length===1&&Number.isInteger(p.c)&&p.c>=0&&p.c<4&&typeof p.m==="boolean"));
@@ -66,15 +70,37 @@ function updateTheme(){
  $("showCoords").checked=prefs.coords!==false;
  $("autoRotate").checked=!!prefs.follow;
 }
-const PANELS=["rooms","play","moves","review","community","settings","rules","account","admin"];
-function switchPanel(name,scroll=false){
- if(name!=="home"&&!PANELS.includes(name))return;
+const PANELS=["rooms","local","create","play","moves","review","community","settings","rules","account","admin"];
+const HASH_ROUTES={home:"#/home",rooms:"#/lobby",local:"#/local",create:"#/setup",waiting:"#/waiting",
+ play:"#/match",moves:"#/moves",review:"#/review",community:"#/leaders",settings:"#/settings",rules:"#/rules",account:"#/account",admin:"#/admin"};
+function panelForHash(hash){
+ const route=Object.entries(HASH_ROUTES).find(([,value])=>value===hash);
+ return route?route[0]:null;
+}
+function roomScreen(){return online?(online.ready?"play":"waiting"):"create";}
+function switchPanel(requested,scroll=false){
+ let name=requested==="room"?roomScreen():requested;
+ if(name==="play"&&!online)name="local";
+ if(online&&!online.ready&&["play","moves","review"].includes(name))name="waiting";
+ if(name==="waiting"&&!online)name="create";
+ if((name==="local"||name==="create")&&online){
+  tell(name==="local"?"Leave your current room before starting a local game.":"Leave your current room before creating or joining another.");
+  if(typeof location.hash==="string"&&HASH_ROUTES[activePanel]&&location.hash!==HASH_ROUTES[activePanel])location.hash=HASH_ROUTES[activePanel];
+  return;
+ }
+ if(name!=="home"&&name!=="waiting"&&!PANELS.includes(name))return;
  if(name==="admin"&&window.QuadraAccount?.role?.()!=="superuser"){tell("Superuser sign-in required.");return;}
  activePanel=name;
- $("homeScreen").classList.toggle("hidden",name!=="home");
- $("workLayout").classList.toggle("hidden",name==="home");
- const showArena=["play","moves","review"].includes(name);
- $("arena").classList.toggle("hidden",!showArena);
+ if(typeof location.hash==="string"&&HASH_ROUTES[name]&&location.hash!==HASH_ROUTES[name])location.hash=HASH_ROUTES[name];
+ const isHome=name==="home",isWaiting=name==="waiting",isMatch=["play","moves","review"].includes(name)&&!!online;
+ const boardVisible=name==="local"||["play","moves","review"].includes(name);
+ $("homeScreen").classList.toggle("hidden",!isHome);
+ $("waitingRoomScreen").classList.toggle("hidden",!isWaiting);
+ $("workLayout").classList.toggle("hidden",isHome||isWaiting);
+ $("arena").classList.toggle("hidden",!boardVisible);
+ $("gameNavigation").classList.toggle("hidden",!boardVisible);
+ $("arenaTitle").textContent=isMatch?"Online match":"Local four-player chess";
+ $("arenaSubtitle").textContent=isMatch?"Live board · "+(online?.room||"Room"):"Pass & play on one board";
  if(document.body?.dataset)document.body.dataset.screen=name;
  for(const id of PANELS){
   const active=id===name;
@@ -82,12 +108,18 @@ function switchPanel(name,scroll=false){
   $("tab-"+id).setAttribute("aria-selected",String(active));
   $("tab-"+id).tabIndex=active?0:-1;
  }
- const headers={home:"headerHome",rooms:"headerRooms",play:"headerPlay",moves:"headerPlay",
-  review:"headerPlay",community:"headerLeaders",rules:"headerHelp",settings:"headerSettings",account:"headerAccount",admin:"headerAdmin"};
- for(const id of ["headerHome","headerRooms","headerPlay","headerLeaders","headerHelp","headerSettings","headerAccount","headerAdmin"]){
-  $(""+id).setAttribute("aria-current",headers[name]===id?"page":"false");
+ const details=$("roomDetails"),target=isWaiting?$("waitingRoomContent"):$("onlineControls");
+ if(target&&details&&details.parentElement!==target)target.append(details);
+ $("headerRoom").classList.toggle("hidden",!online);
+ $("headerRoom").textContent=online?(online.spectator?"Watching · ":"My room · ")+online.room:"My room";
+ const headers={home:"headerHome",rooms:"headerRooms",local:"headerPlay",create:"headerCreate",
+  waiting:"headerRoom",play:isMatch?"headerRoom":"headerPlay",
+  moves:isMatch?"headerRoom":"headerPlay",review:isMatch?"headerRoom":"headerPlay",
+  community:"headerLeaders",rules:"headerHelp",settings:"headerSettings",account:"headerAccount",admin:"headerAdmin"};
+ for(const id of ["headerHome","headerRooms","headerPlay","headerCreate","headerRoom","headerLeaders","headerHelp","headerSettings","headerAccount","headerAdmin"]){
+  $(id).setAttribute("aria-current",headers[name]===id?"page":"false");
  }
- for(const [id,dest] of [["navGame","play"],["navMoves","moves"],["navReview","review"]]){
+ for(const [id,dest] of [["navGame",isMatch?"play":"local"],["navMoves","moves"],["navReview","review"]]){
   $(id).setAttribute("aria-current",name===dest?"page":"false");
  }
  if(name==="home")window.QuadraCommunity?.loadStats?.();
@@ -95,18 +127,16 @@ function switchPanel(name,scroll=false){
  if(name==="community")window.QuadraCommunity?.loadLeaders?.();
  if(name==="review")window.QuadraCommunity?.refreshReview?.();
  if(name==="admin")window.QuadraAccount?.refreshAdmin?.();
- if(scroll&&window.matchMedia&&window.matchMedia("(max-width: 940px)").matches){
-  (showArena?$("arena"):$("controls")).scrollIntoView({behavior:"smooth",block:"start"});
+ if(scroll&&window.matchMedia?.("(max-width: 940px)").matches){
+  (isWaiting?$("waitingRoomScreen"):boardVisible?$("arena"):$("controls")).scrollIntoView({behavior:"smooth",block:"start"});
  }
 }
 function switchLocation(name){
- if(name==="local"&&online){tell("Leave your online room to return to local play.");return;}
- playLocation=name;
- $("localMode").setAttribute("aria-pressed",String(name==="local"));
- $("onlineMode").setAttribute("aria-pressed",String(name==="online"));
- $("localControls").classList.toggle("hidden",name!=="local");
- $("onlineControls").classList.toggle("hidden",name!=="online");
- updateRoom();
+ if(name==="local"){
+  if(online){tell("Leave your room before local play.");return;}
+  playLocation="local";switchPanel("local");return;
+ }
+ if(name==="online"){playLocation="online";switchPanel(roomScreen());}
 }
 const CLOCK_NAMES={untimed:"Unlimited",bullet1:"1 min",bullet1inc:"1 | 1",bullet2inc:"2 | 1",
  blitz3:"3 min",blitz3inc:"3 | 2",blitz5:"5 min",blitz5inc:"5 | 5",rapid10:"10 min",rapid10inc:"10 | 5",
@@ -154,6 +184,13 @@ function initialsMaterial(s,c){
  for(const p of s.b)if(p&&p.c===c){n+=score[p.p];pieces++;}
  return {n,pieces};
 }
+function superuserBadge(){
+ const badge=document.createElement("span");
+ badge.className="superuser-badge";badge.textContent="✦ Superuser";
+ badge.setAttribute("aria-label","Superuser");
+ badge.setAttribute("title","Quadra Chess superuser");
+ return badge;
+}
 function renderPlayers(g){
  playersEl.replaceChildren();
  for(let c=0;c<4;c++){
@@ -163,13 +200,14 @@ function renderPlayers(g){
   const dot=document.createElement("span");dot.className="dot";dot.style.background=playerColors[c];
   name.append(dot,document.createTextNode(names[c]));
   if(online&&!online.spectator&&online.seat===c){const you=document.createElement("span");you.className="you-pill";you.textContent="YOU";name.append(you);}
-  if(online?.seats?.[c]?.role==="superuser"){const badge=document.createElement("span");badge.className="superuser-badge";badge.textContent="✦ SUPERUSER";name.append(badge);}
+  
   const info=document.createElement("small");
   const material=initialsMaterial(g,c);
   const teamName=g.mode==="teams"?" · Team "+(team(c)+1):"";
   const status=online?(online.seats?.[c]?.claimed?(online.seats[c].ready?" · Ready":online.seats[c].online?" · Here":" · Away"):" · Open"):"";
   info.textContent=(online?.seats?.[c]?.alias?"@"+online.seats[c].alias+" · ":"")+(g.alive[c]?material.pieces+" pcs · "+material.n+" pts"+teamName+status:"Eliminated");
   el.append(name,info);
+  if(online?.seats?.[c]?.role==="superuser")el.append(superuserBadge());
   if(online?.hostSeat===c){const host=document.createElement("span");host.className="host-tag";host.textContent="HOST";name.append(host);}
   if(online?.clock?.remaining){const timer=document.createElement("strong");timer.className="clock-time";timer.textContent=formattedTime(liveClockMs(c));el.append(timer);}
   playersEl.append(el);
@@ -365,9 +403,18 @@ function updateRoom(){
   if(!online.spectators?.length){const no=document.createElement("span");no.textContent=(online.spectatorCount||0)>0?"Other viewers are guests.":"No signed-in spectators yet.";audience.append(no);}
   else for(const viewer of online.spectators){
    const line=document.createElement("div");line.className="spectator-entry";line.textContent="@"+viewer.username;
-   if(viewer.role==="superuser"){const badge=document.createElement("span");badge.className="superuser-badge";badge.textContent=" ✦ SUPERUSER";line.append(badge);}
+   if(viewer.role==="superuser")line.append(superuserBadge());
    audience.append(line);
   }
+ $("waitingRoomName").textContent=online.title||"Room "+online.room;
+  $("waitingRoomDescription").textContent=online.spectator?
+   "You're watching the waiting room. The game board opens automatically when the match begins.":
+   "Invite friends, claim your color, and press Ready. The game board opens only when everyone is connected and ready.";
+  $("waitingOccupancy").textContent=online.seats.filter(seat=>seat.claimed).length+" / 4";
+  $("waitingReadyCount").textContent=(online.seatReady||[]).filter(Boolean).length+" / 4";
+  $("waitingAudience").textContent=String(online.spectatorCount||0);
+  $("waitingStatus").textContent=!online.connected?"Connecting to the room…":
+   online.filled?"All four colors claimed · Waiting for Ready confirmations":"Waiting for more players to join";
  const isSpectator=!!online.spectator;
   const isHost=!isSpectator&&online.seat===online.hostSeat;
   $("hostSettings").classList.toggle("hidden",!isHost);
@@ -404,9 +451,15 @@ function updateRoom(){
  for(let c=0;c<4;c++){
   const el=document.createElement("div");el.className="room-seat";
   const dot=document.createElement("span");dot.className="dot";dot.style.background=playerColors[c];
-  const name=document.createElement("span");name.textContent=names[c]+(!isSpectator&&online.seat===c?" (you)":"")+(online.seats[c]?.alias?" · @"+online.seats[c].alias:"")+(online.hostSeat===c?" · HOST":"")+(online.seats[c]?.role==="superuser"?" · ✦ SUPERUSER":"");
-  const status=document.createElement("em");
+  const name=document.createElement("span");name.className="seat-identity";
+  const label=document.createElement("strong");label.className="seat-name";label.textContent=names[c]+(!isSpectator&&online.seat===c?" · You":"");
+  name.append(label);
+  if(online.seats[c]?.alias){const username=document.createElement("small");username.textContent="@"+online.seats[c].alias;name.append(username);}
+  if(online.hostSeat===c){const host=document.createElement("span");host.className="host-tag";host.textContent="HOST";name.append(host);}
+  if(online.seats[c]?.role==="superuser")name.append(superuserBadge());
+  const status=document.createElement("em");status.className="seat-presence";
   status.textContent=online.seats[c]?.ready?"Ready":online.seats[c]?.online?"Here":online.seats[c]?.claimed?"Away":"Open";
+  el.classList.add("seat-"+status.textContent.toLowerCase());
   if(online.seats[c]?.ready)el.classList.add("is-ready");
   el.append(dot,name,status);slots.append(el);
  }
@@ -511,7 +564,7 @@ function connectRoom(data){
  messages:[],spectators:[],spectatorCount:0,ws:null,rev:0,ready:false,filled:false,seatReady:[false,false,false,false],title:data.title||"",clockSettings:data.clockSettings||null,connected:false,awaiting:false,rematch:[false,false,false,false],drawVotes:[false,false,false,false],events:null,replayStates:null,archives:[],gameNo:1,seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
  online=s;playLocation="online";reviewIndex=null;selected=-1;targets=[];pending=null;orientation=s.spectator?0:s.seat;
  if(!s.spectator)try{sessionStorage.setItem(ROOM_KEY,JSON.stringify({room:s.room,seat:s.seat,token:s.token,spectatorKey:s.spectatorKey}));}catch(e){}
- switchLocation("online");switchPanel("play");render();
+ switchPanel("waiting");render();
  function socketConnect(){
   if(online!==s||s.closed)return;
   onlineMessage("Connecting securely to room "+s.room+"…");
@@ -559,6 +612,8 @@ function connectRoom(data){
     const positions=window.QuadraReplay?.replay(s.events,state.mode,E);
     s.replayStates=positions&&positions.length===state.moves.length+1?positions:null;
     reviewIndex=null;selected=-1;targets=[];render();
+    if(s.ready&&activePanel==="waiting")switchPanel("play");
+    else if(!s.ready&&["play","moves","review"].includes(activePanel))switchPanel("waiting");
     window.QuadraCommunity?.refreshReview?.();
     onlineMessage(s.ready?"Game started · "+s.seats.filter(v=>v.online).length+" online":"Lobby · "+s.seats.filter(v=>v.claimed).length+"/4 seats · "+s.seatReady.filter(Boolean).length+"/4 ready");
     return;
@@ -630,7 +685,7 @@ async function joinByCode(code){
  const room=String(code||"").trim().toUpperCase();
  if(!/^[A-F0-9]{7}$/.test(room)){tell("Enter the seven-character room code.");return;}
  $("roomInput").value=room;$("preferredSeat").value="";
- switchPanel("play",true);switchLocation("online");
+ switchPanel("create",true);
  await enterRoom("join");
 }
 function watchRoom(room,key=null){
@@ -657,18 +712,25 @@ function bind(){
  $("headerHelp").addEventListener("click",()=>switchPanel("rules",true));
  $("headerSettings").addEventListener("click",()=>switchPanel("settings",true));
  for(const [id,page] of [["navGame","play"],["navMoves","moves"],["navReview","review"]])$(id).addEventListener("click",()=>switchPanel(page,true));
+ window.addEventListener("hashchange",()=>{
+  if(typeof location.hash!=="string")return;
+  const destination=panelForHash(location.hash);
+  if(destination&&destination!==activePanel)switchPanel(destination);
+ });
  $("headerHome").addEventListener("click",()=>switchPanel("home",true));
  $("headerRooms").addEventListener("click",()=>switchPanel("rooms",true));
- $("headerPlay").addEventListener("click",()=>switchPanel("play",true));
+ $("headerPlay").addEventListener("click",()=>switchPanel("local",true));
+ $("headerCreate").addEventListener("click",()=>switchPanel("create",true));
+ $("headerRoom").addEventListener("click",()=>switchPanel("room",true));
  $("headerLeaders").addEventListener("click",()=>switchPanel("community",true));
  $("headerAccount").addEventListener("click",()=>switchPanel("account",true));
  $("headerAdmin").addEventListener("click",()=>switchPanel("admin",true));
  $("brandHome").addEventListener("click",e=>{e.preventDefault();switchPanel("home",true);});
  for(const [id,page] of [["homeRooms","rooms"],["homeWatch","rooms"],["homeRules","rules"]])$(id).addEventListener("click",()=>switchPanel(page,true));
- const host=()=>{switchPanel("play",true);switchLocation("online");};
- $("homeCreate").addEventListener("click",host);
- for(const id of ["homeLocal","roomsLocal"])$(id).addEventListener("click",()=>{switchPanel("play",true);switchLocation("local");});
- for(const [button,input] of [["homeJoin","homeJoinCode"],["quickJoinButton","quickJoinCode"]]){
+ $("homeCreate").addEventListener("click",()=>switchPanel("create",true));
+ $("homeJoin").addEventListener("click",()=>{switchPanel("create",true);$("quickJoinCode").focus();});
+ $("homeLocal").addEventListener("click",()=>switchPanel("local",true));
+ for(const [button,input] of [["quickJoinButton","quickJoinCode"]]){
   $(button).addEventListener("click",()=>joinByCode($(input).value));
   $(input).addEventListener("input",e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-F0-9]/g,"").slice(0,7);});
   $(input).addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$(button).click();}});
@@ -713,7 +775,7 @@ function bind(){
  $("resetPreferences").addEventListener("click",()=>{prefs={...initialPrefs};updateTheme();saveSettings();render();tell("Appearance reset.");});
  $("cancelpromo").addEventListener("click",()=>{pending=null;promotionEl.classList.add("hidden");});
  $("createRoom").addEventListener("click",()=>enterRoom("create"));
- $("roomsCreate").addEventListener("click",()=>{switchPanel("play",true);switchLocation("online");});
+ $("roomsCreate").addEventListener("click",()=>switchPanel("create",true));
  $("joinRoom").addEventListener("click",()=>enterRoom("join"));
  $("readyButton").addEventListener("click",()=>{if(!online?.connected||online.ready)return;
   const type=online.seatReady?.[online.seat]?"unready":"ready";online.ws.send(JSON.stringify({type}));onlineMessage(type==="ready"?"Ready confirmation submitted.":"Ready confirmation cancelled.");});
@@ -774,7 +836,9 @@ function bind(){
 }
 function init(){
  try{const old=JSON.parse(localStorage.getItem(PREFS_KEY)||"null");if(old&&typeof old==="object")prefs={...initialPrefs,...old};}catch(e){}
- const resumed=restoreAuto();updateTheme();bind();switchPanel("home");
+ const resumed=restoreAuto();updateTheme();bind();
+ const initial=(typeof location.hash==="string"?panelForHash(location.hash):null)||"home";
+ switchPanel(initial);
  if(resumed&&prefs.follow)orientation=state.turn;
  const invited=new URLSearchParams(location.search).get("room");
  const watchCode=new URLSearchParams(location.search).get("watch");

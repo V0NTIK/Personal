@@ -2,9 +2,27 @@
 
 **Playable website:** https://quadra-chess.onrender.com  
 **API health:** https://quadra-chess-api.onrender.com/health  
-**Current release:** 0.7 — room-centric chess with spectators, chat, ratings and review
+**Current release:** 0.9 — distinct room, local-play, setup, staging and live-game views
 
 A mobile-friendly four-player chess beta with local pass-and-play and private online rooms. The platform uses GitHub, a free Render static site, a free Render Node.js API, and a free Render PostgreSQL database. There is currently no public matchmaking, paid subscription, advertising, or account requirement.
+
+## Version 0.9 — Clear pages and dedicated pregame staging
+
+The interface is organized around distinct, bookmarkable in-page routes:
+
+- **Home** (`#/home`): welcome screen and live community activity.
+- **Room lobby** (`#/lobby`): browse public rooms, join an open seat or spectate a room. No local-game controls or invitation-code form compete with the public directory.
+- **Local play** (`#/local`): pass-and-play chess with its own board and local match actions, independent of online rooms.
+- **Create / Join** (`#/setup`): an invitation-code input beside a separate room-creation form.
+- **Waiting room** (`#/waiting`): a full-width room-staging view featuring occupancy, Ready confirmations, player status, chat, spectators and host controls. The chess board is intentionally hidden here.
+- **Live match** (`#/match`): the board takes focus and room controls move to the match sidebar. Moves and Review remain accessible, with the same room chat and player roster.
+- **Superuser badge**: displayed in a dedicated, wrapping identity space rather than squeezed into narrow player headings; spectator and leaderboard badges wrap cleanly as well.
+
+The server controls when a match starts. Clients automatically switch from Waiting Room to Live Match only when a match state reports `ready=true`, and return to staging when a new round has been opened. Browsing other pages does not intentionally remove a player's room membership. The room-control DOM is reparented between staging and match layouts without duplicating controls or listeners.
+
+## Version 0.8 — Room ownership and platform administration
+
+Room hosts may edit permitted settings, delete a room, and pass host ownership to the longest-present player when leaving. Empty rooms are deleted rather than remaining in the public lobby. Signed-in spectators can be identified in the room roster, while guest viewers remain anonymous. A protected superuser dashboard can view accounts and suspend/restore non-superuser access. Administrative privileges require server-side verification, not an editable client-side badge.
 
 ## Version 0.7 — Room-centric social chess
 
@@ -12,7 +30,7 @@ Quadra Chess now organizes the online experience around persistent rooms instead
 
 ### Public and private rooms
 
-- **Rooms** is the primary website tab. Browse public rooms, search by title or code, and filter by open seats, live games, and rated status.
+- The dedicated **Room lobby** page lets you browse public rooms, search by title or code, and filter by open seats, live games, and rated status.
 - Create **public rooms** while signed in, or **private rooms** as a guest or account holder.
 - Public rooms display game mode, round number, occupied seats, spectators, provisional average rating and casual/rated designation.
 - Private rooms do not appear in the public directory; a host can copy a watch-only invitation link and reset it to revoke future spectator access.
