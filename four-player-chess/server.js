@@ -5,11 +5,12 @@ const {WebSocketServer,WebSocket}=require("ws");
 const engine=require("./engine.js");
 const variants=require("./variants.js");
 const Clock=require("./clock.js");
+const {createAuth}=require("./auth.js");
 const {createStore,ROOM_TTL}=require("./store.js");
 const PORT=Number(process.env.PORT||3001);
 const WEB_ORIGIN=process.env.WEB_ORIGIN||"https://quadra-chess.onrender.com";
 const MAX_ROOMS=200,MAX_BODY=2048;
-const rooms=new Map(),rates=new Map(),store=createStore();
+const rooms=new Map(),rates=new Map(),store=createStore(),auth=createAuth(store),authRates=new Map();
 const now=()=>Date.now();
 const sha=token=>crypto.createHash("sha256").update(token).digest("hex");
 const token=()=>crypto.randomBytes(32).toString("base64url");
@@ -24,7 +25,7 @@ function headers(req){
  const h={"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"};
  if(origin&&permitted(origin)){
   h["Access-Control-Allow-Origin"]=origin;h["Vary"]="Origin";
-  h["Access-Control-Allow-Methods"]="GET,POST,OPTIONS";h["Access-Control-Allow-Headers"]="Content-Type";
+  h["Access-Control-Allow-Methods"]="GET,POST,DELETE,OPTIONS";h["Access-Control-Allow-Headers"]="Content-Type,Authorization";
  }
  return h;
 }
@@ -48,13 +49,14 @@ function readBody(req){
   req.on("error",e=>{if(!settled)reject(e);});
  });
 }
-function sealedSeat(raw,ws=null){return {tokenHash:sha(raw),ws,lastSeen:now()};}
-function seatSummary(r){return r.seats.map((s,i)=>({color:i,claimed:!!s,online:!!(s?.ws&&s.ws.readyState===WebSocket.OPEN)}));}
-const ready=r=>r.seats.every(Boolean);
+function sealedSeat(raw,ws=null,account=null){return {tokenHash:sha(raw),ws,lastSeen:now(),userId:account?.id||null,alias:account?.username||null};}
+function seatSummary(r){return r.seats.map((s,i)=>({color:i,claimed:!!s,online:!!(s?.ws&&s.ws.readyState===WebSocket.OPEN),ready:!!r.seatReady[i],alias:s?.alias||null}));}
+const filled=r=>r.seats.every(Boolean);
+const ready=r=>!!r.started;
 function snapshot(r){
  const t=now();
  return {type:"state",protocol:2,room:r.id,revision:r.rev,variant:r.variant,persistent:store.persistent,serverNow:t,
- ready:ready(r),rematch:r.rematch.slice(),drawVotes:r.drawVotes.slice(),events:r.events,gameNo:r.gameNo,
+ ready:ready(r),filled:filled(r),seatReady:r.seatReady.slice(),title:r.title,rematch:r.rematch.slice(),drawVotes:r.drawVotes.slice(),events:r.events,gameNo:r.gameNo,
  archives:r.archives.map(a=>({gameNo:a.gameNo,winner:a.winner,endedAt:a.endedAt,moveCount:a.moves.length,clock:a.clock})),
  seats:seatSummary(r),clock:Clock.visible(r.clock,r.game.turn,t),
  game:engine.publicState(r.game)};
@@ -72,53 +74,86 @@ function lockRoom(r,fn){
 async function commitRoom(r,next){
  await store.save(next);
  r.rev=next.rev;r.game=next.game;r.variant=next.variant;r.seats=next.seats;r.clock=next.clock;
- r.rematch=next.rematch;r.drawVotes=next.drawVotes;r.events=next.events;r.archives=next.archives;r.gameNo=next.gameNo;r.updated=next.updated;
+ r.rematch=next.rematch;r.drawVotes=next.drawVotes;r.events=next.events;r.archives=next.archives;r.gameNo=next.gameNo;
+ r.started=next.started;r.seatReady=next.seatReady;r.title=next.title;r.updated=next.updated;
  broadcast(r);
 }
 function chooseVariant(data){
  if(data.variant){const v=variants.byId(data.variant);if(!v)throw Error("Unknown variant.");if(data.mode&&data.mode!==v.mode)throw Error("Incompatible variant and format.");return v;}
  return variants.byMode(data.mode);
 }
-async function createRoom(mode,clockPreset="untimed",variantId=null){
- const v=chooseVariant({mode,variant:variantId});
- if(!v)throw Error("Unknown game format.");
- if(!Clock.preset(clockPreset))throw Error("Unknown time control.");
- if(rooms.size>=MAX_ROOMS)throw Object.assign(Error("Room capacity reached."),{code:503});
- const roomId=id(),secret=token(),t=now();
- const r={id:roomId,rev:0,variant:v.id,game:variants.createGame(v.id,engine),
-  seats:[sealedSeat(secret),null,null,null],clock:Clock.create(clockPreset),rematch:[false,false,false,false],
-  created:t,updated:t,lock:Promise.resolve(),events:[],archives:[],gameNo:1,drawVotes:[false,false,false,false]};
- await store.save(r);
- rooms.set(roomId,r);
- return {room:roomId,seat:0,token:secret,revision:0,mode:v.mode,variant:v.id,clock:clockPreset,persistent:store.persistent};
+function preferredSeat(input,defaultSeat=null){
+ if(input===undefined||input===null||input==="")return defaultSeat;
+ if(!Number.isInteger(input)||input<0||input>3)throw Object.assign(Error("Invalid color selection."),{code:400});
+ return input;
 }
-async function joinRoom(roomId){
+function roomTitle(input){
+ if(input===undefined||input===null||input==="")return "";
+ if(typeof input!=="string"||input.length>40||!(/^[a-zA-Z0-9 _.,!?'()-]+$/).test(input))throw Object.assign(Error("Room title must be under 40 characters and use ordinary text."),{code:400});
+ return input.trim();
+}
+function clockChoice(spec){return Clock.normalize(spec??"untimed");}
+async function createRoom(mode,clockSpec="untimed",variantId=null,options={}){
+ const v=chooseVariant({mode,variant:variantId});
+ if(!v)throw Object.assign(Error("Unknown game format."),{code:400});
+ const clock=Clock.create(clockSpec);
+ if(rooms.size>=MAX_ROOMS)throw Object.assign(Error("Room capacity reached."),{code:503});
+ const seat=preferredSeat(options.seat,0),title=roomTitle(options.title);
+ const roomId=id(),secret=token(),t=now(),seats=[null,null,null,null];
+ seats[seat]=sealedSeat(secret,null,options.account);
+ const r={id:roomId,rev:0,variant:v.id,game:variants.createGame(v.id,engine),
+  seats,clock,rematch:[false,false,false,false],started:false,seatReady:[false,false,false,false],title,
+  created:t,updated:t,lock:Promise.resolve(),events:[],archives:[],gameNo:1,drawVotes:[false,false,false,false]};
+ await store.save(r);rooms.set(roomId,r);
+ return {room:roomId,seat,token:secret,revision:0,mode:v.mode,variant:v.id,clock:clock.preset,
+ clockSettings:{preset:clock.preset,initialMs:clock.initialMs,incrementMs:clock.incrementMs},persistent:store.persistent,title};
+}
+async function joinRoom(roomId,options={}){
  const r=rooms.get(roomId);
  if(!r)throw Object.assign(Error("Room not found or expired."),{code:404});
  return lockRoom(r,async()=>{
-  const seat=r.seats.findIndex(s=>!s);
-  if(seat<0)throw Object.assign(Error("All four seats are taken."),{code:409});
+  if(r.started)throw Object.assign(Error("This match has already started."),{code:409});
+  if(options.account&&r.seats.some(s=>s?.userId===options.account.id))throw Object.assign(Error("Your account already owns a seat in this room. Reconnect from Account."),{code:409});
+  const chosen=preferredSeat(options.seat,null);
+  const seat=chosen===null?r.seats.findIndex(s=>!s):chosen;
+  if(seat<0||r.seats[seat])throw Object.assign(Error(chosen===null?"All four seats are taken.":"That color is already claimed."),{code:409});
   const secret=token(),t=now(),seats=r.seats.slice();
-  seats[seat]=sealedSeat(secret);
-  const clock=Clock.copy(r.clock);
-  if(seats.every(Boolean))Clock.start(clock,t);
-  const next={...r,seats,clock,updated:t};
-  await commitRoom(r,next);
-  return {room:roomId,seat,token:secret,revision:r.rev,mode:r.game.mode,variant:r.variant,clock:r.clock.preset,persistent:store.persistent};
+  seats[seat]=sealedSeat(secret,null,options.account);
+  await commitRoom(r,{...r,seats,seatReady:r.seatReady.slice(),updated:t});
+  return {room:roomId,seat,token:secret,revision:r.rev,mode:r.game.mode,variant:r.variant,clock:r.clock.preset,
+  clockSettings:{preset:r.clock.preset,initialMs:r.clock.initialMs,incrementMs:r.clock.incrementMs},persistent:store.persistent,title:r.title};
  });
 }
-function authentic(ws,msg){
- if(msg?.type!=="hello"||typeof msg.room!=="string"||!Number.isInteger(msg.seat)||typeof msg.token!=="string")return false;
+async function authentic(ws,msg){
+ if(msg?.type!=="hello"||typeof msg.room!=="string"||!Number.isInteger(msg.seat))return false;
  const r=rooms.get(msg.room.toUpperCase());
  if(!r||msg.seat<0||msg.seat>3)return false;
- const seat=r.seats[msg.seat];
- if(!seat?.tokenHash||msg.token.length<32||msg.token.length>128)return false;
- const hashed=sha(msg.token);
- if(hashed.length!==seat.tokenHash.length||!crypto.timingSafeEqual(Buffer.from(hashed),Buffer.from(seat.tokenHash)))return false;
+ const seat=r.seats[msg.seat];if(!seat?.tokenHash)return false;
+ let allowed=false;
+ if(typeof msg.token==="string"&&msg.token.length>=32&&msg.token.length<=128){
+  const hashed=sha(msg.token);
+  allowed=hashed.length===seat.tokenHash.length&&crypto.timingSafeEqual(Buffer.from(hashed),Buffer.from(seat.tokenHash));
+ }
+ if(!allowed&&typeof msg.session==="string"&&seat.userId){
+  const account=await auth.verify(msg.session);
+  allowed=!!account&&account.id===seat.userId;
+ }
+ if(!allowed)return false;
  if(seat.ws&&seat.ws!==ws&&seat.ws.readyState===WebSocket.OPEN)seat.ws.close(4001,"Connected from another browser");
  seat.ws=ws;seat.lastSeen=now();ws.room=r;ws.seat=msg.seat;r.updated=now();
- emit(ws,{type:"welcome",room:r.id,seat:msg.seat,protocol:2,persistent:store.persistent});
+ emit(ws,{type:"welcome",room:r.id,seat:msg.seat,protocol:3,persistent:store.persistent});
  broadcast(r);return true;
+}
+async function handleReady(r,seat,ws,affirm=true){
+ await lockRoom(r,async()=>{
+  if(r.started)return emit(ws,snapshot(r));
+  if(!r.seats[seat]||r.seats[seat].ws!==ws)return emit(ws,{type:"error",error:"This seat is not connected."});
+  const seatReady=r.seatReady.slice();seatReady[seat]=!!affirm;
+  const t=now(),everyone=filled(r)&&seatReady.every(Boolean)&&r.seats.every(s=>s?.ws?.readyState===WebSocket.OPEN);
+  const next={...r,seatReady,updated:t};
+  if(everyone){next.started=true;next.clock=Clock.copy(r.clock);Clock.start(next.clock,t);}
+  try{await commitRoom(r,next);}catch(e){emit(ws,{type:"error",error:"Could not save readiness."});}
+ });
 }
 async function expireTurn(r,t=now()){
  if(r.game.winner||!r.clock?.started||r.clock.remaining===null)return false;
@@ -163,8 +198,8 @@ async function handleRematch(r,seat,ws){
   if(votes.every(Boolean)){
    const archive={gameNo:r.gameNo,winner:r.game.winner,mode:r.game.mode,clock:r.clock.preset,
     endedAt:t,moves:r.game.moves.map(m=>({...m})),events:r.events};
-   next={...next,game:variants.createGame(r.variant,engine),clock:Clock.create(r.clock.preset),
-    rev:r.rev+1,rematch:[false,false,false,false],drawVotes:[false,false,false,false],
+   next={...next,game:variants.createGame(r.variant,engine),clock:Clock.create(r.clock.preset==="custom"?{type:"custom",minutes:r.clock.initialMs/60000,incrementSeconds:r.clock.incrementMs/1000}:r.clock.preset),
+    rev:r.rev+1,rematch:[false,false,false,false],drawVotes:[false,false,false,false],started:true,seatReady:[true,true,true,true],
     archives:[...r.archives,archive].slice(-8),events:[],gameNo:r.gameNo+1};
    Clock.start(next.clock,t);
   }
@@ -207,9 +242,9 @@ async function handleVacate(r,seat,ws){
  await lockRoom(r,async()=>{
   if(ready(r))return emit(ws,{type:"error",error:"The game has started. Use Resign to withdraw, or disconnect to return later."});
   if(!r.seats[seat]||r.seats[seat].ws!==ws)return emit(ws,{type:"error",error:"You no longer own that seat."});
-  const seats=r.seats.slice();seats[seat]=null;
+  const seats=r.seats.slice();seats[seat]=null;const seatReady=r.seatReady.slice();seatReady[seat]=false;
   try{
-   await commitRoom(r,{...r,seats,updated:now()});
+   await commitRoom(r,{...r,seats,seatReady,updated:now()});
    emit(ws,{type:"vacated"});ws.close(1000,"Seat released");
   }catch(e){emit(ws,{type:"error",error:"Could not release your seat. Retry when connected."});}
  });
@@ -227,7 +262,7 @@ async function reclaimLobbySeats(r,t=now()){
     seats[i]=null;count++;
    }
   }
-  if(count)await commitRoom(r,{...r,seats,updated:t});
+  if(count)await commitRoom(r,{...r,seats,seatReady:seats.map((s,i)=>!!s&&r.seatReady[i]),updated:t});
   return count;
  });
 }
@@ -237,6 +272,34 @@ function sendArchive(r,gameNo,ws){
  if(!a)return emit(ws,{type:"error",error:"Archived game not found."});
  emit(ws,{type:"archive",archive:{...a}});
 }
+function requestToken(req){
+ const hdr=req.headers.authorization;
+ if(!hdr)return null;
+ const match=/^Bearer ([A-Za-z0-9_-]{43})$/.exec(hdr);
+ if(!match)throw Object.assign(Error("Invalid account session."),{code:401});
+ return match[1];
+}
+async function optionalAccount(req){
+ const token=requestToken(req);
+ if(!token)return null;
+ const user=await auth.verify(token);
+ if(!user)throw Object.assign(Error("Your account session has expired. Sign in again."),{code:401});
+ return user;
+}
+function authRateLimit(req){
+ const ip=req.socket.remoteAddress||"unknown",t=now(),value=authRates.get(ip)||{t,n:0};
+ if(t-value.t>900000){value.t=t;value.n=0;}
+ value.n++;authRates.set(ip,value);
+ return value.n>12;
+}
+function accountRooms(user){
+ return [...rooms.values()].map(r=>{
+  const seat=r.seats.findIndex(s=>s?.userId===user.id);
+  if(seat<0)return null;
+  return {room:r.id,seat,title:r.title,variant:r.variant,mode:r.game.mode,started:r.started,
+   finished:!!r.game.winner,turn:r.game.turn,clock:r.clock.preset,updated:r.updated,gameNo:r.gameNo};
+ }).filter(Boolean).sort((a,b)=>b.updated-a.updated).slice(0,20);
+}
 const app=http.createServer(async(req,res)=>{
  const path=(req.url||"").split("?")[0];
  if(req.method==="OPTIONS"){
@@ -244,14 +307,44 @@ const app=http.createServer(async(req,res)=>{
   res.writeHead(204,headers(req));res.end();return;
  }
  if(!permitted(req.headers.origin))return send(res,req,403,{error:"Origin not allowed."});
- if(path==="/health"&&req.method==="GET")return send(res,req,200,{ok:true,rooms:rooms.size,protocol:2,storage:store.persistent?"postgres":"memory"});
+ if(path==="/health"&&req.method==="GET")return send(res,req,200,{ok:true,rooms:rooms.size,protocol:3,accounts:auth.enabled,storage:store.persistent?"postgres":"memory"});
  if(limited(req))return send(res,req,429,{error:"Too many requests."});
- if(path==="/api/catalog"&&req.method==="GET")return send(res,req,200,{variants:variants.VARIANTS,clocks:Object.values(Clock.PRESETS)});
+ if(path==="/api/catalog"&&req.method==="GET")return send(res,req,200,{variants:variants.VARIANTS,clocks:Object.values(Clock.PRESETS),customTime:{minMinutes:1,maxMinutes:180,minIncrementSeconds:0,maxIncrementSeconds:60}});
  try{
+  if(path.startsWith("/api/auth/")){
+   if(!auth.enabled)return send(res,req,503,{error:"Accounts need persistent storage."});
+   const action=path.slice("/api/auth/".length);
+   if(req.method==="POST"&&["register","login","recover"].includes(action)){
+    if(authRateLimit(req))return send(res,req,429,{error:"Too many sign-in attempts. Try later."});
+    const body=await readBody(req),result=await auth[action](body);
+    return send(res,req,action==="register"?201:200,result);
+   }
+   if(req.method==="GET"&&(action==="me"||action==="rooms")){
+    const account=await optionalAccount(req);
+    if(!account)return send(res,req,401,{error:"Sign in required."});
+    return send(res,req,200,action==="rooms"?{rooms:accountRooms(account)}:{account,rooms:accountRooms(account)});
+   }
+   if(req.method==="POST"&&action==="logout"){
+    const token=requestToken(req);if(token)await auth.logout(token);
+    return send(res,req,200,{ok:true});
+   }
+   if(req.method==="POST"&&action==="delete"){
+    if(authRateLimit(req))return send(res,req,429,{error:"Too many attempts."});
+    const token=requestToken(req),body=await readBody(req);
+    const account=await auth.deleteAccount(token,body?.password);
+    for(const room of rooms.values()){
+     const seats=room.seats.map(seat=>seat?.userId===account.id?{...seat,userId:null,alias:null}:seat);
+     if(room.seats.some(seat=>seat?.userId===account.id))await lockRoom(room,()=>commitRoom(room,{...room,seats,updated:now()}));
+    }
+    return send(res,req,200,{ok:true});
+   }
+   return send(res,req,404,{error:"Account route not found."});
+  }
   if(path==="/api/rooms"&&req.method==="POST"){
    const body=await readBody(req);
    if(!body||!["ffa","teams"].includes(body.mode))return send(res,req,400,{error:"Invalid game format."});
-   const data=await createRoom(body.mode,body.clock||"untimed",body.variant||null);
+   const account=await optionalAccount(req);
+   const data=await createRoom(body.mode,body.clock??"untimed",body.variant||null,{seat:body.seat,title:body.title,account});
    return send(res,req,201,data);
   }
   const match=path.match(/^\/api\/rooms\/([A-F0-9]{7})(?:\/(join))?$/i);
@@ -260,11 +353,11 @@ const app=http.createServer(async(req,res)=>{
    if(req.method==="GET"&&!match[2]){
     const r=rooms.get(room);
     return r?send(res,req,200,{room:r.id,variant:r.variant,mode:r.game.mode,claimed:r.seats.map(Boolean),
-     revision:r.rev,ready:ready(r),clock:r.clock.preset,persistent:store.persistent}):send(res,req,404,{error:"Room not found."});
+     revision:r.rev,ready:ready(r),filled:filled(r),title:r.title,clock:r.clock.preset,persistent:store.persistent}):send(res,req,404,{error:"Room not found."});
    }
    if(req.method==="POST"&&match[2]){
-    await readBody(req);
-    try{return send(res,req,200,await joinRoom(room));}
+    const body=await readBody(req);
+    try{return send(res,req,200,await joinRoom(room,{seat:body?.seat,account:await optionalAccount(req)}));}
     catch(e){return send(res,req,e.code||400,{error:e.message});}
    }
   }
@@ -284,10 +377,11 @@ wss.on("connection",ws=>{
   let msg;try{msg=JSON.parse(raw.toString());}catch(e){return emit(ws,{type:"error",error:"Invalid message."});}
   const t=now();if(t-ws.window>10000){ws.window=t;ws.received=0;}
   if(++ws.received>40)return ws.close(4008,"Rate limit");
-  if(!ws.room){if(!authentic(ws,msg))ws.close(4003,"Invalid room credentials");else clearTimeout(timeout);return;}
+  if(!ws.room){void authentic(ws,msg).then(ok=>{if(!ok)ws.close(4003,"Invalid room credentials");else clearTimeout(timeout);}).catch(()=>ws.close(4003,"Authentication error"));return;}
   const r=ws.room;r.updated=t;
   if(msg.type==="ping")return emit(ws,{type:"pong"});
   if(msg.type==="sync")return emit(ws,snapshot(r));
+  if(msg.type==="ready"||msg.type==="unready")return void handleReady(r,ws.seat,ws,msg.type==="ready").catch(()=>emit(ws,{type:"error",error:"Could not update readiness."}));
   if(msg.type==="rematch")return void handleRematch(r,ws.seat,ws).catch(()=>emit(ws,{type:"error",error:"Rematch failed."}));
   if(msg.type==="resign")return void handleResign(r,ws.seat,ws).catch(()=>emit(ws,{type:"error",error:"Resignation failed."}));
   if(msg.type==="draw-vote")return void handleDrawVote(r,ws.seat,ws).catch(()=>emit(ws,{type:"error",error:"Draw voting failed."}));
@@ -298,7 +392,9 @@ wss.on("connection",ws=>{
  });
  ws.on("close",()=>{
   clearTimeout(timeout);const r=ws.room;
-  if(r?.seats[ws.seat]?.ws===ws){r.seats[ws.seat].ws=null;r.seats[ws.seat].lastSeen=now();broadcast(r);}
+  if(r?.seats[ws.seat]?.ws===ws){r.seats[ws.seat].ws=null;r.seats[ws.seat].lastSeen=now();
+   if(!r.started&&r.seatReady[ws.seat])void lockRoom(r,async()=>{const votes=r.seatReady.slice();votes[ws.seat]=false;await commitRoom(r,{...r,seatReady:votes,updated:now()});}).catch(()=>broadcast(r));
+   else broadcast(r);}
  });
  ws.on("error",()=>{});
 });
@@ -324,6 +420,8 @@ const cleanup=setInterval(async()=>{
  }
  for(const r of rooms.values())if(!ready(r))reclaimLobbySeats(r,t).catch(err=>console.error("Lobby reclamation failed:",err.message));
  for(const [ip,v] of rates)if(t-v.t>120000)rates.delete(ip);
+ for(const [ip,v] of authRates)if(t-v.t>900000)authRates.delete(ip);
+ try{await auth.cleanup();}catch(e){console.error("Account session cleanup failed.");}
  try{await store.cleanup();}catch(e){console.error("Room cleanup failed:",e.message);}
 },60000);
 function shutdown(){
@@ -332,7 +430,7 @@ function shutdown(){
  app.close();store.close().catch(()=>{});
 }
 async function startServer(){
- await store.init();
+ await store.init();await auth.init();
  for(const r of await store.load()){
   if(rooms.size>=MAX_ROOMS)break;
   if(!variants.byId(r.variant)||!r.game||!r.clock)continue;
@@ -342,4 +440,4 @@ async function startServer(){
 }
 if(require.main===module)startServer().catch(err=>{console.error("Server startup failed:",err.message);process.exitCode=1;});
 process.on("SIGTERM",shutdown);
-module.exports={app,wss,rooms,store,createRoom,joinRoom,snapshot,shutdown,startServer,expireTurn,reclaimLobbySeats,LOBBY_RECLAIM_MS};
+module.exports={app,wss,rooms,store,auth,createRoom,joinRoom,snapshot,shutdown,startServer,expireTurn,reclaimLobbySeats,LOBBY_RECLAIM_MS,handleReady};
