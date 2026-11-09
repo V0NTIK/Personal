@@ -48,5 +48,47 @@ test("public rooms can be discovered, spectators can watch but cannot modify gam
   priv.send(JSON.stringify({type:"watch",room:privateRoom.room,key:privateRoom.spectatorKey}));
   await privateWelcome;
   assert.equal(rooms.get(privateRoom.room).spectators.size,1);
+  const blueSeat=await joinRoom(publicRoom.room,{account:BLUE});
+  const redSocket=await connect();
+  const welcome=message(redSocket,x=>x.type==="welcome");
+  redSocket.send(JSON.stringify({type:"hello",room:publicRoom.room,seat:0,token:publicRoom.token}));
+  await welcome;
+  const blueSocket=await connect();
+  const blueWelcome=message(blueSocket,x=>x.type==="welcome");
+  blueSocket.send(JSON.stringify({type:"hello",room:blueSeat.room,seat:blueSeat.seat,token:blueSeat.token}));
+  await blueWelcome;
+  // Emulate verified accounts in this in-memory integration test; production verifies sessions against PostgreSQL.
+  const r=rooms.get(publicRoom.room);
+  r.seats[0].ws.sessionUser=RED;r.seats[1].ws.sessionUser=BLUE;
+  const chatSeen=message(watcher,x=>x.type==="state"&&x.messages?.length===1);
+  redSocket.send(JSON.stringify({type:"chat",text:"Welcome to our room!"}));
+  const chatted=await chatSeen;
+  assert.equal(chatted.messages[0].text,"Welcome to our room!");
+  assert.equal(chatted.messages[0].userId,undefined);
+  const contactBlocked=message(redSocket,x=>x.type==="error"&&/Links/.test(x.error));
+  redSocket.send(JSON.stringify({type:"chat",text:"Visit https://example.com"}));
+  await contactBlocked;
+  const blueChat=message(redSocket,x=>x.type==="state"&&x.messages?.length===2);
+  blueSocket.send(JSON.stringify({type:"chat",text:"Good game!"}));
+  const twice=await blueChat;
+  const blueMessage=twice.messages[1];
+  const hidden=message(redSocket,x=>x.type==="state"&&x.messages?.[1]?.hidden===true);
+  redSocket.send(JSON.stringify({type:"moderate",action:"remove",id:blueMessage.id}));
+  await hidden;
+  const muted=message(redSocket,x=>x.type==="state"&&x.mutedUsers===1);
+  redSocket.send(JSON.stringify({type:"moderate",action:"mute",id:blueMessage.id}));
+  await muted;
+  const muteError=message(blueSocket,x=>x.type==="error"&&/muted/.test(x.error));
+  blueSocket.send(JSON.stringify({type:"chat",text:"Again?"}));
+  await muteError;
+  // The host can create a fresh game without deleting the room's conversation or observers.
+  r.game.winner="Red wins!";
+  const nextRound=message(redSocket,x=>x.type==="state"&&x.gameNo===2);
+  redSocket.send(JSON.stringify({type:"new-round"}));
+  const nextGame=await nextRound;
+  assert.equal(nextGame.ready,false);
+  assert.equal(nextGame.archives.length,1);
+  assert.equal(nextGame.messages.length,2);
+  assert.equal(r.spectators.size,1);
  }finally{for(const ws of connections)ws.terminate();shutdown();}
 });
