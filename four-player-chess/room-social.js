@@ -52,10 +52,12 @@ function moderate(room,hostUserId,targetId,action){
   return {messages:room.messages.map(m=>m.id===targetId?{...m,hidden:true}:m),mutedUsers:room.mutedUsers||[]};
  }
  if(action==="mute"||action==="unmute"){
-  if(typeof targetId!=="string"||targetId===hostUserId)throw Error("Invalid participant.");
-  if(!room.seats.some(s=>s?.userId===targetId))throw Error("This user is not seated in the room.");
+  const message=(room.messages||[]).find(m=>m.id===targetId);
+  const userId=message?.userId;
+  if(!userId||userId===hostUserId)throw Error("Invalid participant.");
+  if(!room.seats.some(s=>s?.userId===userId))throw Error("This user is not seated in the room.");
   const values=new Set(room.mutedUsers||[]);
-  if(action==="mute")values.add(targetId);else values.delete(targetId);
+  if(action==="mute")values.add(userId);else values.delete(userId);
   return {messages:room.messages,mutedUsers:[...values]};
  }
  throw Error("Unsupported moderation action.");
