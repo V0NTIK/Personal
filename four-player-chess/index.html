@@ -131,7 +131,13 @@
               <button type="button" class="button primary full" id="copyInvite">Copy invite link</button>
             </div>
             <div id="rematchControls" class="hidden" style="margin-bottom:11px"><button type="button" class="button primary full" id="rematchRoom">Vote for rematch</button><p class="room-help" id="rematchVotes" style="margin:10px 0 0">Waiting for votes</p></div>
-            <button type="button" class="button danger full" id="leaveRoom">Leave room</button>
+            <div class="match-actions hidden" id="matchActions">
+              <div class="rule-divider"></div>
+              <button type="button" class="button ghost full" id="drawVote">Offer / agree to draw</button>
+              <p id="drawVotesStatus" class="notice" aria-live="polite"></p>
+              <button type="button" class="button danger full" id="resignRoom">Resign from match</button>
+            </div>
+                        <button type="button" class="button danger full" id="leaveRoom">Leave room</button>
           </div>
           <p class="online-status" id="onlineStatus" aria-live="polite" role="status"></p>
           <p class="notice" id="storageNotice">Private beta · Rooms are temporary unless durable database storage is connected.</p>
@@ -151,7 +157,13 @@
         <p class="review-message" id="reviewMessage">Live position</p>
         <div class="rule-divider"></div>
         <button type="button" class="button ghost full" id="export">Copy game notation</button>
-        <p class="notice">Replay is available for the current local session. Online games show the live position and recorded moves.</p>
+        <button type="button" class="button ghost full" id="downloadGame" style="margin-top:8px">Download game record (.json)</button>
+        <div id="onlineArchives" class="hidden">
+          <div class="rule-divider"></div>
+          <h3>Previous matches in this room</h3>
+          <div id="archiveList" class="archive-list"></div>
+        </div>
+        <p class="notice">Online replay is available for matches recorded after this update. Game records contain moves, not player identities.</p>
       </section>
       <section class="tab-panel hidden" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings">
         <div class="panel-eyebrow">PREFERENCES</div>
@@ -189,7 +201,7 @@
         <div class="rule-divider"></div>
         <p class="notice">Want a future format? The shared rules engine is being structured for other chess variants and games.</p>
       </section>
-      <div class="panel-foot"><span class="foot-dot"></span><span>Free to play · No ads in the game · Open beta</span></div>
+      <div class="panel-foot"><span class="foot-dot"></span><span>Free to play · Private matches · Open beta</span></div>
     </aside>
   </div>
 </div>
@@ -204,5 +216,6 @@
 </div>
 <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
 <script src="./engine.js" defer></script>
+<script src="./replay.js" defer></script>
 <script src="./app.js" defer></script>
 </body></html>
