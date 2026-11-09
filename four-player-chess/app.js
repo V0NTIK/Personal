@@ -83,9 +83,12 @@ function switchPanel(name,scroll=false){
   $("tab-"+id).tabIndex=active?0:-1;
  }
  const headers={home:"headerHome",rooms:"headerRooms",play:"headerPlay",moves:"headerPlay",
-  review:"headerPlay",community:"headerLeaders",rules:"headerHelp",settings:"headerHelp",account:"headerAccount",admin:"headerAdmin"};
- for(const id of ["headerHome","headerRooms","headerPlay","headerLeaders","headerHelp","headerAccount","headerAdmin"]){
+  review:"headerPlay",community:"headerLeaders",rules:"headerHelp",settings:"headerSettings",account:"headerAccount",admin:"headerAdmin"};
+ for(const id of ["headerHome","headerRooms","headerPlay","headerLeaders","headerHelp","headerSettings","headerAccount","headerAdmin"]){
   $(""+id).setAttribute("aria-current",headers[name]===id?"page":"false");
+ }
+ for(const [id,dest] of [["navGame","play"],["navMoves","moves"],["navReview","review"]]){
+  $(id).setAttribute("aria-current",name===dest?"page":"false");
  }
  if(name==="home")window.QuadraCommunity?.loadStats?.();
  if(name==="rooms")window.QuadraCommunity?.loadRooms?.();
@@ -652,6 +655,8 @@ function copyInvite(){
 function bind(){
  for(const button of document.querySelectorAll("[data-tab]"))button.addEventListener("click",()=>switchPanel(button.dataset.tab,false));
  $("headerHelp").addEventListener("click",()=>switchPanel("rules",true));
+ $("headerSettings").addEventListener("click",()=>switchPanel("settings",true));
+ for(const [id,page] of [["navGame","play"],["navMoves","moves"],["navReview","review"]])$(id).addEventListener("click",()=>switchPanel(page,true));
  $("headerHome").addEventListener("click",()=>switchPanel("home",true));
  $("headerRooms").addEventListener("click",()=>switchPanel("rooms",true));
  $("headerPlay").addEventListener("click",()=>switchPanel("play",true));
