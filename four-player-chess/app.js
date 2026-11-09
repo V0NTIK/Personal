@@ -204,6 +204,8 @@ function updateRoom(){
  $("resumeRoom").classList.toggle("hidden",connected||!sessionCredentials());
  if(!connected)return;
  $("roomId").textContent=online.room;
+ $("rematchControls").classList.toggle("hidden",!state.winner);
+ if(state.winner){const votes=(online.rematch||[]).filter(Boolean).length;$("rematchVotes").textContent=votes+" / 4 players ready to restart";$("rematchRoom").disabled=!!online.rematch?.[online.seat]||!online.connected;$("rematchRoom").textContent=online.rematch?.[online.seat]?"Rematch vote sent":"Vote for rematch";}
  $("mySeat").textContent=names[online.seat];
  $("roomInput").value=online.room;
  const slots=$("roomSeats");slots.replaceChildren();
@@ -310,7 +312,7 @@ function connectRoom(data){
  if(online)return;
  saveAuto();
  backup={state:clone(state),stack:stack.map(clone),orientation};
- const s={room:data.room,seat:data.seat,token:data.token,ws:null,rev:0,ready:false,connected:false,awaiting:false,seats:[{},{},{},{}],attempts:0,closed:false};
+ const s={room:data.room,seat:data.seat,token:data.token,ws:null,rev:0,ready:false,connected:false,awaiting:false,rematch:[false,false,false,false],seats:[{},{},{},{}],attempts:0,closed:false};
  online=s;playLocation="online";reviewIndex=null;selected=-1;targets=[];pending=null;orientation=s.seat;
  try{sessionStorage.setItem(ROOM_KEY,JSON.stringify({room:s.room,seat:s.seat,token:s.token}));}catch(e){}
  switchLocation("online");switchPanel("play");render();
@@ -326,7 +328,7 @@ function connectRoom(data){
    if(msg.type==="welcome"){s.connected=true;s.attempts=0;onlineMessage("Connected as "+names[s.seat]+".");render();return;}
    if(msg.type==="error"){s.awaiting=false;onlineMessage("Server: "+msg.error);render();return;}
    if(msg.type==="state"){
-    s.rev=msg.revision;s.seats=msg.seats||s.seats;s.ready=!!msg.ready;s.awaiting=false;
+    s.rev=msg.revision;s.seats=msg.seats||s.seats;s.rematch=msg.rematch||s.rematch;s.ready=!!msg.ready;s.awaiting=false;
     if(safeState(msg.game))state=msg.game;
     selected=-1;targets=[];render();
     onlineMessage(s.ready?"Ready · "+s.seats.filter(v=>v.online).length+" players connected":"Lobby · "+s.seats.filter(v=>v.claimed).length+" of 4 seats claimed");
@@ -360,7 +362,7 @@ async function enterRoom(which){
  try{
   const room=$("roomInput").value.trim().toUpperCase();
   if(which==="join"&&!/^[A-F0-9]{7}$/.test(room))throw Error("Enter a valid seven-character room code.");
-  const data=which==="create"?await roomRequest("/api/rooms",{mode:$("mode").value}):await roomRequest("/api/rooms/"+room+"/join",{});
+  const data=which==="create"?await roomRequest("/api/rooms",{mode:$("onlineFormat").value}):await roomRequest("/api/rooms/"+room+"/join",{});
   connectRoom(data);tell("Private room joined.");
  }catch(e){onlineMessage(e.name==="AbortError"?"Server did not respond. Please try again.":"Unable to join: "+e.message);}
  finally{button.disabled=!!online;}
@@ -410,6 +412,7 @@ function bind(){
  $("joinRoom").addEventListener("click",()=>enterRoom("join"));
  $("roomInput").addEventListener("input",e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-F0-9]/g,"").slice(0,7);});
  $("copyInvite").addEventListener("click",copyInvite);
+ $("rematchRoom").addEventListener("click",()=>{if(!online||!online.connected||!state.winner||online.rematch?.[online.seat])return;online.ws.send(JSON.stringify({type:"rematch"}));tell("Rematch vote sent.");});
  $("leaveRoom").addEventListener("click",leaveRoom);
  $("resumeRoom").addEventListener("click",()=>{const v=sessionCredentials();if(v)connectRoom(v);else onlineMessage("No recent room available for this tab.");});
  document.addEventListener("keydown",e=>{
