@@ -58,7 +58,7 @@ async function closeRoom(r,reason="Room closed"){
  for(const s of r.seats)if(s?.ws){emit(s.ws,{type:"room-closed",message:reason});s.ws.close(4004,reason);}
  for(const watcher of r.spectators||[]){emit(watcher,{type:"room-closed",message:reason});watcher.close(4004,reason);}
 }
-function seatSummary(r){return r.seats.map((s,i)=>({color:i,claimed:!!s,online:!!(s?.ws&&s.ws.readyState===WebSocket.OPEN),ready:!!r.seatReady[i],alias:s?.alias||null,role:s?.role||"user"}));}
+function seatSummary(r){return r.seats.map((s,i)=>({color:i,claimed:!!s,online:!!(s?.ws&&s.ws.readyState===WebSocket.OPEN),ready:!!r.seatReady[i],alias:s?.alias||null,role:s?.ws?.sessionUser?.role||s?.role||"user"}));}
 const filled=r=>r.seats.every(Boolean);
 const ready=r=>!!r.started;
 function snapshot(r){
@@ -483,7 +483,10 @@ const app=http.createServer(async(req,res)=>{
     const actor=await optionalAccount(req);
     if(actor?.role!=="superuser")return send(res,req,403,{error:"Superuser permission required."});
     if(path==="/api/admin/accounts"&&req.method==="GET"){
-     const live=new Set([...rooms.values()].flatMap(r=>r.seats.filter(seat=>seat?.ws?.readyState===WebSocket.OPEN).map(seat=>seat.userId).filter(Boolean)));
+     const live=new Set([...rooms.values()].flatMap(r=>[
+      ...r.seats.filter(seat=>seat?.ws?.readyState===WebSocket.OPEN).map(seat=>seat.userId),
+      ...[...(r.spectators||[])].filter(ws=>ws.readyState===WebSocket.OPEN).map(ws=>ws.sessionUser?.id)
+     ].filter(Boolean)));
      return send(res,req,200,{accounts:(await auth.listAccounts()).map(account=>({...account,online:live.has(account.id)}))});
     }
     const ban=path.match(new RegExp("^/api/admin/accounts/([0-9a-f-]{36})/(ban|unban)$","i"));
