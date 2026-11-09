@@ -5,7 +5,7 @@ const fs=require("node:fs"),path=require("node:path"),vm=require("node:vm");
 const html=fs.readFileSync(path.join(__dirname,"../index.html"),"utf8");
 const script=fs.readFileSync(path.join(__dirname,"../rooms-client.js"),"utf8");
 class Element{
- constructor(){this.events={};this.children=[];this.textContent="";this.value="";this.disabled=false;this.className="";this.style={};}
+ constructor(){this.events={};this.children=[];this.textContent="";this.value="";this.disabled=false;this.className="";this.style={};const classes=new Set();this.classList={add:k=>classes.add(k),remove:k=>classes.delete(k),contains:k=>classes.has(k)};}
  addEventListener(event,fn){this.events[event]=fn;}
  emit(event){return this.events[event]?.({});}
  replaceChildren(){this.children=[];}
@@ -64,7 +64,7 @@ test("postgame review highlights recorded moments with replay navigation",()=>{
  const x=launch();
  x.window.QuadraCommunity.refreshReview();
  assert.equal(x.nodes.reviewDetails.children.length,0);
- assert.equal(x.nodes.reviewDetails.classList?.contains?.("hidden")??false,false);
+ assert.equal(x.nodes.reviewDetails.classList.contains("hidden"),false);
  assert.equal(x.nodes.reviewStats.children.length,4);
  assert.equal(x.nodes.reviewMoments.children.length,1);
  x.nodes.reviewMoments.children[0].emit("click");
