@@ -18,8 +18,10 @@
     </a>
     <nav class="header-actions" aria-label="Main navigation">
       <button type="button" id="headerHome" class="text-link">Home</button>
-      <button type="button" id="headerRooms" class="text-link">Rooms</button>
-      <button type="button" id="headerPlay" class="text-link">Play</button>
+      <button type="button" id="headerRooms" class="text-link">Room lobby</button>
+      <button type="button" id="headerPlay" class="text-link">Local play</button>
+      <button type="button" id="headerCreate" class="text-link">Create / Join</button>
+      <button type="button" id="headerRoom" class="text-link hidden">My room</button>
       <button type="button" id="headerLeaders" class="text-link">Leaders</button>
       <button type="button" id="headerHelp" class="text-link">Help</button>
       <button type="button" id="headerSettings" class="text-link">Settings</button>
@@ -34,7 +36,7 @@
       <p>Create a room, invite your friends, and come back for another round. Built for the players who are here, not for endless matchmaking.</p>
       <div class="home-actions">
         <button id="homeRooms" type="button" class="button primary">Explore public rooms</button>
-        <button id="homeCreate" type="button" class="button ghost">Host a room</button>
+        <button id="homeCreate" type="button" class="button ghost">Create / Join</button>
         <button id="homeLocal" type="button" class="button ghost">Pass &amp; play</button>
       </div>
     </div>
@@ -46,21 +48,35 @@
       <p id="homeStatsStatus" class="home-stats-note">Connecting to the community…</p>
     </section>
     <section class="home-shortcuts" aria-label="Ways to play">
-      <div class="home-tile"><span class="tile-index">01 · JOIN</span><h2>Have an invite code?</h2><p>Enter seven characters to join a room and take the first open seat.</p>
-        <div class="inline-join"><input class="input" id="homeJoinCode" maxlength="7" placeholder="Room code" autocomplete="off" aria-label="Room code"><button type="button" id="homeJoin" class="button primary">Join</button></div></div>
+      <div class="home-tile"><span class="tile-index">01 · JOIN</span><h2>Have an invite code?</h2><p>Open the Join page, enter your code, and claim an open color.</p>
+        <button type="button" id="homeJoin" class="button primary">Join with a code</button></div>
       <div class="home-tile"><span class="tile-index">02 · WATCH</span><h2>Watch live games</h2><p>Open a spectator seat without joining a match. Signed-in spectators are visible to the room.</p>
         <button type="button" class="button ghost" id="homeWatch">Browse live games</button></div>
       <div class="home-tile"><span class="tile-index">03 · LEARN</span><h2>New to Quadra?</h2><p>Learn the four-sided rules, formats, turns and winning conditions.</p>
         <button type="button" class="button ghost" id="homeRules">Read the rules</button></div>
     </section>
   </main>
+  <section class="waiting-room-screen hidden" id="waitingRoomScreen" aria-label="Online room waiting lobby">
+    <div class="waiting-hero">
+      <div class="waiting-kicker"><span class="waiting-live-dot" aria-hidden="true"></span> BEFORE THE MATCH · ROOM LOBBY</div>
+      <h1 id="waitingRoomName">Your room is ready.</h1>
+      <p id="waitingRoomDescription">Invite your friends and confirm when everyone is ready. The chess board appears automatically when the game starts.</p>
+      <div class="waiting-metrics">
+        <div class="waiting-metric"><strong id="waitingOccupancy">1 / 4</strong><span>Seats claimed</span></div>
+        <div class="waiting-metric"><strong id="waitingReadyCount">0 / 4</strong><span>Players ready</span></div>
+        <div class="waiting-metric"><strong id="waitingAudience">0</strong><span>Watching</span></div>
+      </div>
+      <p id="waitingStatus" role="status" aria-live="polite">Connecting to room…</p>
+    </div>
+    <div id="waitingRoomContent" class="waiting-room-content"></div>
+  </section>
   <div class="layout hidden" id="workLayout">
     <main class="arena" id="arena">
       <div class="arena-titlebar">
         <div>
           <div class="eyebrow">THE ARENA</div>
-          <h1>Four-player chess</h1>
-          <p class="subtitle">A fresh perspective on the game you know.</p>
+          <h1 id="arenaTitle">Four-player chess</h1>
+          <p class="subtitle" id="arenaSubtitle">A fresh perspective on the game you know.</p>
         </div>
         <div class="arena-icon" aria-hidden="true">♛</div>
       </div>
@@ -100,6 +116,8 @@
     </main>
     <aside class="sidebar" id="controls" aria-label="Game controls">
       <div class="tabs" role="tablist" aria-label="Panels">
+        <button type="button" class="tab hidden" id="tab-local" data-tab="local" role="tab" aria-controls="panel-local" aria-selected="false">Local</button>
+        <button type="button" class="tab hidden" id="tab-create" data-tab="create" role="tab" aria-controls="panel-create" aria-selected="false">Create</button>
         <button type="button" class="tab" id="tab-rooms" data-tab="rooms" role="tab" aria-controls="panel-rooms" aria-selected="true">Rooms</button>
         <button type="button" class="tab" id="tab-play" data-tab="play" role="tab" aria-controls="panel-play" aria-selected="false">Play</button>
         <button type="button" class="tab" id="tab-moves" data-tab="moves" role="tab" aria-controls="panel-moves" aria-selected="false">Moves</button>
@@ -114,8 +132,8 @@
         <div class="panel-eyebrow">COMMUNITY LOBBY</div>
         <h2>Find your next room.</h2>
         <p class="panel-desc">Browse public rooms, watch ongoing games, or make a place for friends to return to.</p>
-        <div class="rooms-intro-actions"><button type="button" class="button primary" id="roomsCreate">+ Create a room</button><button type="button" class="button ghost" id="roomsLocal">Local play</button></div>
-        <div class="room-fast-join"><label for="quickJoinCode" class="field-label">JOIN WITH A CODE</label><div class="inline-join"><input id="quickJoinCode" class="input" maxlength="7" placeholder="Seven-character code" autocomplete="off"><button type="button" class="button primary" id="quickJoinButton">Join room</button></div></div>
+        <div class="rooms-intro-actions"><button type="button" class="button primary" id="roomsCreate">Create or join a private room</button></div>
+        <p class="room-help">This is the public room directory. Browse available seats or watch a game; private invitations belong on Create / Join.</p>
         <div class="rule-divider"></div>
         <div class="two-buttons">
           <div class="field"><label for="roomSearch" class="field-label">SEARCH ROOMS</label><input id="roomSearch" class="input" placeholder="Name or code" autocomplete="off"></div>
@@ -130,14 +148,10 @@
         <div class="public-room-list" id="publicRoomList"></div>
         <p class="notice">Room ratings show the average provisional rating of signed-in participants, not an official Chess.com rating. Private rooms never appear here.</p>
       </section>
-      <section class="tab-panel hidden" id="panel-play" role="tabpanel" aria-labelledby="tab-play">
-        <div class="panel-eyebrow">YOUR GAME</div>
-        <h2>Ready to play?</h2>
-        <p class="panel-desc">Choose how you want to take the board.</p>
-        <div class="segmented" role="group" aria-label="Play location">
-          <button type="button" id="localMode" aria-pressed="true">Pass &amp; play</button>
-          <button type="button" id="onlineMode" aria-pressed="false">Online room</button>
-        </div>
+      <section class="tab-panel hidden" id="panel-local" role="tabpanel" aria-labelledby="tab-local">
+        <div class="panel-eyebrow">PASS &amp; PLAY</div>
+        <h2>Local four-player chess</h2>
+        <p class="panel-desc">One board, up to four players together. No room or account is needed.</p>
         <div id="localControls">
           <div class="field">
             <label class="field-label" for="mode">GAME FORMAT</label>
@@ -161,7 +175,21 @@
           </div>
           <p class="notice">Your local game is automatically saved in this browser after every move. No account required.</p>
         </div>
-        <div id="onlineControls" class="hidden">
+      </section>
+      <section class="tab-panel hidden" id="panel-create" role="tabpanel" aria-labelledby="tab-create">
+        <div class="panel-eyebrow">ONLINE ROOM SETUP</div>
+        <h2>Create or join a room</h2>
+        <p class="panel-desc">Room setup is separate from the public directory and from the game itself.</p>
+        <div class="setup-join-card">
+          <div class="setup-card-label">I HAVE A ROOM CODE</div>
+          <h3>Join an existing room</h3>
+          <p>Enter the seven-character invitation code. We'll choose an available color for you.</p>
+          <div class="inline-join"><input id="quickJoinCode" class="input" maxlength="7" placeholder="Room code" autocomplete="off" aria-label="Enter room code"><button type="button" class="button primary" id="quickJoinButton">Join room</button></div>
+        </div>
+        <div class="setup-divider"><span>OR</span></div>
+        <div class="setup-host-card">
+          <div class="setup-card-label">I'M THE HOST</div>
+          <h3>Create a new room</h3>
           <div id="onlineLobby">
             <p class="room-help">Host a room for repeat games. To join an existing room, use the simple code box on the Rooms page.</p><h3 class="create-heading">Host a new room</h3>
             <div class="field"><label class="field-label" for="roomVisibility">ROOM ACCESS</label>
@@ -202,9 +230,17 @@
             <p class="notice">The room persists for multiple matches. All four players confirm readiness before each new round.</p>
             <div class="hidden"><label for="roomInput">Code</label><input class="input" id="roomInput" maxlength="7"></div>
              <button type="button" class="button primary full" id="createRoom">Create my room</button>
-             <button type="button" class="button ghost hidden" id="joinRoom">Join</button>
+             
              <button type="button" class="button ghost full hidden" id="resumeRoom" style="margin-top:9px">Reconnect to my room</button>
           </div>
+        </div>
+        <div class="hidden" aria-hidden="true"><button id="localMode" type="button" aria-pressed="true">Local</button><button id="onlineMode" type="button" aria-pressed="false">Online</button><button id="joinRoom" type="button">Legacy join</button></div>
+      </section>
+      <section class="tab-panel hidden" id="panel-play" role="tabpanel" aria-labelledby="tab-play">
+        <div class="panel-eyebrow">ACTIVE ONLINE GAME</div>
+        <h2>Match controls</h2>
+        <p class="panel-desc">Your room, conversation, and game actions.</p>
+        <div id="onlineControls">
           <div id="roomDetails" class="hidden">
             <div class="room-box">
               <div class="panel-eyebrow" id="roomAccessLabel">ROOM</div>
