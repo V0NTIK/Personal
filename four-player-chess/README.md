@@ -3,6 +3,16 @@
 Public game: https://quadra-chess.onrender.com
 API health: https://quadra-chess-api.onrender.com/health
 
+## Release: Streamlined UI + multiplayer improvements
+
+- New board-first, responsive dark interface with a compact tabbed control sidebar for Play, Moves, Settings, and Rules.
+- Dedicated local/online switch, private-room seat roster, copyable invites, and explicit free-for-all/team format selection for room creation.
+- Four board palettes, legal-move indicators, optional coordinates, automatic local turn-follow orientation, keyboard movement between board squares, and more descriptive accessibility labels.
+- Local games automatically save on each move and restore on page reload. Manual save and restore remain available.
+- Local replay through move-by-move navigation with first, previous, next, and live controls.
+- Four-player authenticated vote for rematch after an online game finishes. All four must agree to restart the room.
+- Browser-level regression tests (no headless browser dependency) now run in the same CI test suite as game-engine and WebSocket integration tests.
+
 ## Current features
 
 **Local play**
@@ -41,6 +51,7 @@ four-player-chess/
   server.js                 Node HTTP + WebSocket, authoritative moves
   package.json              pinned dependency + predeploy tests
   tests/
+    ui.test.cjs             browser UI and interaction tests with deterministic DOM doubles
     engine.test.cjs         deterministic movement and variant regression tests
     server.test.cjs         API and WebSocket integration tests
 ```
@@ -66,9 +77,9 @@ A long-term architecture should separate dedicated packages for `game-core`, `va
 
 ### Next major steps
 
-1. Harden all chess edge cases with property-based tests and formal four-player rulebook.
-2. Move browser API endpoints to environment-based configuration and add deployment smoke tests.
-3. Durable online games with a real database; game event log, snapshots and server-side clocks.
+1. Validate visual design and interactions in real browsers and on four physical devices; harden all chess edge cases with property-based tests and formal four-player rulebook.
+2. Move browser API endpoints to environment-based configuration, improve network resilience and add deployment smoke tests.
+3. Durable online games with a real database; game event log, authoritative online replay, snapshots and server-side clocks.
 4. Presence/forfeits, flexible seat assignments, game-room settings, spectators and private tournaments.
 5. Secure optional accounts, friends, matchmaking, ratings and moderation before public social features.
 6. Chess960, classic chess, additional variants, then games beyond chess.
