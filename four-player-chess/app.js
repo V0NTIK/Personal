@@ -50,11 +50,13 @@ function restoreAuto(){
  }catch(e){}
  return false;
 }
+function reviewLength(){return online?(online.replayStates?.length?online.replayStates.length-1:0):stack.length;}
 function viewState(){
+ if(online&&reviewIndex!==null&&online.replayStates&&reviewIndex<online.replayStates.length-1)return online.replayStates[reviewIndex];
  if(!online&&reviewIndex!==null&&reviewIndex<stack.length)return stack[reviewIndex];
  return state;
 }
-function reviewing(){return !online&&reviewIndex!==null&&reviewIndex<stack.length;}
+function reviewing(){return reviewIndex!==null&&reviewIndex<reviewLength();}
 function updateTheme(){
  const colors=palette[prefs.theme]||palette.sage;
  document.documentElement.style.setProperty("--board-light",colors[0]);
@@ -187,7 +189,7 @@ function renderStatus(g){
  const viewing=reviewing();
  const check=g.alive[g.turn]&&isCheck(g,g.turn);
  let primary="";
- if(viewing)primary="Reviewing move "+reviewIndex+" of "+stack.length;
+ if(viewing)primary="Reviewing move "+reviewIndex+" of "+reviewLength();
  else if(online&&!online.connected)primary="Connecting to game…";
  else if(online&&!online.ready)primary="Waiting for players";
  else if(g.winner)primary=g.winner;
@@ -215,17 +217,51 @@ function renderHistory(){
  for(let i=0;i<moves.length;i++){
   const move=moves[i],button=document.createElement("button");
   button.type="button";button.className="move"+(activeStep===i+1?" is-current":"");
-  button.disabled=!!online;
+  button.disabled=!!online&&!online.replayStates;
   const no=document.createElement("span");no.className="move-number";no.textContent=String(i+1).padStart(2,"0");
   const dot=document.createElement("span");dot.className="move-color";dot.style.background=playerColors[move.color]||"#899b9e";
   const label=document.createElement("span");label.textContent=move.notation;
   button.append(no,dot,label);
-  button.addEventListener("click",()=>{if(online)return;reviewIndex=i+1;selected=-1;targets=[];render();});
+  button.addEventListener("click",()=>{if(online&&!online.replayStates)return;reviewIndex=i+1;selected=-1;targets=[];render();});
   historyEl.append(button);
  }
- const available=!online;
- for(const id of ["reviewHome","reviewPrev","reviewNext","reviewLive"])$(id).disabled=!available||stack.length===0;
- $("reviewMessage").textContent=online?"Live position · Review available in local games":reviewing()?"Move "+reviewIndex+" / "+stack.length+" · Viewing history":"Live position · "+moves.length+" moves";
+ const available=!online||!!online.replayStates;
+ for(const id of ["reviewHome","reviewPrev","reviewNext","reviewLive"])$(id).disabled=!available||reviewLength()===0;
+ $("reviewMessage").textContent=online&&!available?"Online replay unavailable for games recorded before this update":reviewing()?"Move "+reviewIndex+" / "+reviewLength()+" · Viewing history":"Live position · "+moves.length+" moves";
+ renderArchives();
+}
+function renderArchives(){
+ const section=$("onlineArchives"),list=$("archiveList");
+ section.classList.toggle("hidden",!online||!online.archives?.length);
+ list.replaceChildren();
+ if(!online)return;
+ for(const record of online.archives||[]){
+  const row=document.createElement("div");row.className="archive-row";
+  const meta=document.createElement("div");meta.className="archive-meta";
+  const title=document.createElement("strong");title.textContent="Game "+record.gameNo+" · "+record.winner;
+  const details=document.createElement("small");details.textContent=record.moveCount+" entries · "+new Date(record.endedAt).toLocaleDateString();
+  meta.append(title,details);
+  const download=document.createElement("button");download.type="button";download.className="button ghost";download.textContent="Export";
+  download.addEventListener("click",()=>{if(online?.connected)online.ws.send(JSON.stringify({type:"archive",gameNo:record.gameNo}));else tell("Reconnect to export archived games.");});
+  row.append(meta,download);list.append(row);
+ }
+}
+function downloadRecord(record,file){
+ const contents=JSON.stringify(record,null,2);
+ if(typeof Blob==="undefined"||typeof URL?.createObjectURL!=="function"){
+  navigator.clipboard?.writeText(contents).then(()=>tell("Game data copied."),()=>tell("Download is unsupported here."));return;
+ }
+ const blob=new Blob([contents],{type:"application/json"});
+ const url=URL.createObjectURL(blob);
+ const anchor=document.createElement("a");anchor.href=url;anchor.download=file;anchor.style.display="none";
+ document.body.append(anchor);anchor.click();anchor.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+ tell("Game record downloaded.");
+}
+function currentExport(){
+ return {format:"quadra-chess-game",version:1,exportedAt:new Date().toISOString(),
+  variant:online?.variant|| (state.mode==="teams"?"quadra-teams":"quadra-ffa"),
+  mode:state.mode,game:state,events:online?.events||null,gameNo:online?.gameNo||null,clock:online?.clockPreset||"untimed"};
 }
 function updateRoom(){
  const connected=!!online;
@@ -240,6 +276,12 @@ function updateRoom(){
  $("roomStorage").textContent=online.persistent?"Database · beta":"Temporary memory";
  $("storageNotice").textContent=online.persistent?"Beta database storage is enabled. This free database expires December 9, 2026; export important games.":"This server currently stores rooms in memory. Games may disappear when it restarts.";
  $("rematchControls").classList.toggle("hidden",!state.winner);
+ $("matchActions").classList.toggle("hidden",!online.ready||!!state.winner);
+ $("resignRoom").disabled=!online.connected||!state.alive[online.seat];
+ $("drawVote").disabled=!online.connected||!state.alive[online.seat]||!!online.drawVotes?.[online.seat];
+ $("drawVote").textContent=online.drawVotes?.[online.seat]?"Draw vote submitted":"Offer / agree to draw";
+ $("drawVotesStatus").textContent=(online.drawVotes||[]).filter(Boolean).length+" / "+state.alive.filter(Boolean).length+" active players agree";
+ $("leaveRoom").textContent=online.ready?"Disconnect · keep my seat":"Leave lobby · release seat";
  if(state.winner){const votes=(online.rematch||[]).filter(Boolean).length;$("rematchVotes").textContent=votes+" / 4 players ready to restart";$("rematchRoom").disabled=!!online.rematch?.[online.seat]||!online.connected;$("rematchRoom").textContent=online.rematch?.[online.seat]?"Rematch vote sent":"Vote for rematch";}
  $("mySeat").textContent=names[online.seat];
  $("roomInput").value=online.room;
@@ -327,10 +369,10 @@ function saveSlot(){
  catch(e){tell("Unable to save to this browser.");}
 }
 function reviewStep(step){
- if(online){tell("Replay is available for local games.");return;}
- const current=reviewIndex===null?stack.length:reviewIndex;
- const next=Math.max(0,Math.min(stack.length,step==="first"?0:step==="previous"?current-1:step==="next"?current+1:stack.length));
- reviewIndex=next===stack.length?null:next;selected=-1;targets=[];render();
+ if(online&&!online.replayStates){tell("This game was started before online replay recording was enabled.");return;}
+ const length=reviewLength(),current=reviewIndex===null?length:reviewIndex;
+ const next=Math.max(0,Math.min(length,step==="first"?0:step==="previous"?current-1:step==="next"?current+1:length));
+ reviewIndex=next===length?null:next;selected=-1;targets=[];render();
 }
 function exportRecord(){
  const out="Quadra Chess · "+(state.mode==="teams"?"Teams":"Free-for-all")+"\n"+state.moves.map((m,i)=>(i+1)+". "+m.notation).join("\n")+"\n"+(state.winner||"Game in progress");
@@ -347,7 +389,7 @@ function connectRoom(data){
  if(online)return;
  saveAuto();
  backup={state:clone(state),stack:stack.map(clone),orientation};
- const s={room:data.room,seat:data.seat,token:data.token,ws:null,rev:0,ready:false,connected:false,awaiting:false,rematch:[false,false,false,false],seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
+ const s={room:data.room,seat:data.seat,token:data.token,ws:null,rev:0,ready:false,connected:false,awaiting:false,rematch:[false,false,false,false],drawVotes:[false,false,false,false],events:null,replayStates:null,archives:[],gameNo:1,seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
  online=s;playLocation="online";reviewIndex=null;selected=-1;targets=[];pending=null;orientation=s.seat;
  try{sessionStorage.setItem(ROOM_KEY,JSON.stringify({room:s.room,seat:s.seat,token:s.token}));}catch(e){}
  switchLocation("online");switchPanel("play");render();
@@ -362,10 +404,20 @@ function connectRoom(data){
    if(online!==s)return;let msg;try{msg=JSON.parse(event.data);}catch(e){return;}
    if(msg.type==="welcome"){s.connected=true;s.attempts=0;onlineMessage("Connected as "+names[s.seat]+".");render();return;}
    if(msg.type==="error"){s.awaiting=false;onlineMessage("Server: "+msg.error);render();return;}
+   if(msg.type==="vacated"){leaveRoom(true);return;}
+   if(msg.type==="archive"&&msg.archive){
+    const a=msg.archive;
+    downloadRecord({format:"quadra-chess-game",version:1,room:s.room,variant:s.variant,
+      gameNo:a.gameNo,mode:a.mode,result:a.winner,moves:a.moves,events:a.events,endedAt:a.endedAt},
+      "quadra-"+s.room+"-game-"+a.gameNo+".json");return;
+   }
    if(msg.type==="state"){
-    s.rev=msg.revision;s.seats=msg.seats||s.seats;s.rematch=msg.rematch||s.rematch;s.ready=!!msg.ready;s.awaiting=false;s.clock=msg.clock||null;s.clockReceivedAt=Date.now();s.persistent=!!msg.persistent;s.variant=msg.variant||s.variant; if(s.clock)s.clockPreset=s.clock.preset;
+    s.rev=msg.revision;s.seats=msg.seats||s.seats;s.rematch=msg.rematch||s.rematch;s.drawVotes=msg.drawVotes||s.drawVotes;
+    s.archives=msg.archives||[];s.gameNo=msg.gameNo||1;s.events=msg.events;s.ready=!!msg.ready;s.awaiting=false;s.clock=msg.clock||null;s.clockReceivedAt=Date.now();s.persistent=!!msg.persistent;s.variant=msg.variant||s.variant; if(s.clock)s.clockPreset=s.clock.preset;
     if(safeState(msg.game))state=msg.game;
-    selected=-1;targets=[];render();
+    const positions=window.QuadraReplay?.replay(s.events,state.mode,E);
+    s.replayStates=positions&&positions.length===state.moves.length+1?positions:null;
+    reviewIndex=null;selected=-1;targets=[];render();
     onlineMessage(s.ready?"Ready · "+s.seats.filter(v=>v.online).length+" players connected":"Lobby · "+s.seats.filter(v=>v.claimed).length+" of 4 seats claimed");
     return;
    }
@@ -402,14 +454,21 @@ async function enterRoom(which){
  }catch(e){onlineMessage(e.name==="AbortError"?"Server did not respond. Please try again.":"Unable to join: "+e.message);}
  finally{button.disabled=!!online;}
 }
-function leaveRoom(){
+function leaveRoom(vacated=false){
  if(!online)return;
- online.closed=true;if(retryTimer)clearTimeout(retryTimer);online.ws?.close();
- online=null;try{sessionStorage.removeItem(ROOM_KEY);}catch(e){}
+ const s=online;
+ if(!vacated&&!s.ready&&s.connected&&s.ws?.readyState===WebSocket.OPEN){
+  s.ws.send(JSON.stringify({type:"vacate"}));onlineMessage("Releasing your unused seat…");return;
+ }
+ const keepCredentials=s.ready||(!vacated&&!s.connected);
+ s.closed=true;if(retryTimer)clearTimeout(retryTimer);s.ws?.close();
+ online=null;
+ if(!keepCredentials)try{sessionStorage.removeItem(ROOM_KEY);}catch(e){}
  if(backup){state=backup.state;stack=backup.stack;orientation=backup.orientation;}
  else{state=fresh("ffa");stack=[];}
  backup=null;reviewIndex=null;selected=-1;targets=[];pending=null;
- switchLocation("local");render();tell("Back to your local game.");
+ switchLocation("local");render();
+ tell(keepCredentials?"Disconnected. Your seat is reserved; reconnect from this tab.":"Lobby seat released. Back to local play.");
 }
 function copyInvite(){
  if(!online)return;
@@ -433,6 +492,7 @@ function bind(){
  $("save").addEventListener("click",saveSlot);
  $("load").addEventListener("click",loadSlot);
  $("export").addEventListener("click",exportRecord);
+ $("downloadGame").addEventListener("click",()=>downloadRecord(currentExport(),"quadra-game-"+(online?.room||"local")+".json"));
  $("reviewHome").addEventListener("click",()=>reviewStep("first"));
  $("reviewPrev").addEventListener("click",()=>reviewStep("previous"));
  $("reviewNext").addEventListener("click",()=>reviewStep("next"));
@@ -448,6 +508,15 @@ function bind(){
  $("roomInput").addEventListener("input",e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-F0-9]/g,"").slice(0,7);});
  $("copyInvite").addEventListener("click",copyInvite);
  $("rematchRoom").addEventListener("click",()=>{if(!online||!online.connected||!state.winner||online.rematch?.[online.seat])return;online.ws.send(JSON.stringify({type:"rematch"}));tell("Rematch vote sent.");});
+ $("drawVote").addEventListener("click",()=>{
+  if(!online?.connected||!online.ready||state.winner||!state.alive[online.seat]||online.drawVotes?.[online.seat])return;
+  online.ws.send(JSON.stringify({type:"draw-vote"}));tell("Draw offer submitted.");
+ });
+ $("resignRoom").addEventListener("click",()=>{
+  if(!online?.connected||!online.ready||state.winner||!state.alive[online.seat])return;
+  if(!confirm("Resign as "+names[online.seat]+"? This cannot be undone."))return;
+  online.ws.send(JSON.stringify({type:"resign"}));
+ });
  $("leaveRoom").addEventListener("click",leaveRoom);
  $("resumeRoom").addEventListener("click",()=>{const v=sessionCredentials();if(v)connectRoom(v);else onlineMessage("No recent room available for this tab.");});
  document.addEventListener("keydown",e=>{
