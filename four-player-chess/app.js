@@ -13,7 +13,7 @@ const pieceNames={k:"king",q:"queen",r:"rook",b:"bishop",n:"knight",p:"pawn"};
 const initialPrefs={theme:"sage",hints:true,coords:true,follow:false};
 let prefs={...initialPrefs};
 let state=fresh("ffa"),stack=[],selected=-1,targets=[],pending=null,orientation=0;
-let online=null,backup=null,retryTimer=null,reviewIndex=null,activePanel="rooms",playLocation="local",toastTimer=null;
+let online=null,backup=null,retryTimer=null,reviewIndex=null,activePanel="home",playLocation="local",toastTimer=null;
 
 function tell(message){
  const el=$("toast");el.textContent=message;el.classList.remove("hidden");
@@ -66,20 +66,37 @@ function updateTheme(){
  $("showCoords").checked=prefs.coords!==false;
  $("autoRotate").checked=!!prefs.follow;
 }
-function switchPanel(name,scroll){
- if(!["rooms","play","moves","review","community","settings","rules","account"].includes(name))return;
+const PANELS=["rooms","play","moves","review","community","settings","rules","account","admin"];
+function switchPanel(name,scroll=false){
+ if(name!=="home"&&!PANELS.includes(name))return;
+ if(name==="admin"&&window.QuadraAccount?.role?.()!=="superuser"){tell("Superuser sign-in required.");return;}
  activePanel=name;
- for(const id of ["rooms","play","moves","review","community","settings","rules","account"]){
+ $("homeScreen").classList.toggle("hidden",name!=="home");
+ $("workLayout").classList.toggle("hidden",name==="home");
+ const showArena=["play","moves","review"].includes(name);
+ $("arena").classList.toggle("hidden",!showArena);
+ if(document.body?.dataset)document.body.dataset.screen=name;
+ for(const id of PANELS){
   const active=id===name;
   $("panel-"+id).classList.toggle("hidden",!active);
   $("tab-"+id).setAttribute("aria-selected",String(active));
   $("tab-"+id).tabIndex=active?0:-1;
  }
+ const headers={home:"headerHome",rooms:"headerRooms",play:"headerPlay",moves:"headerPlay",
+  review:"headerPlay",community:"headerLeaders",rules:"headerHelp",settings:"headerSettings",account:"headerAccount",admin:"headerAdmin"};
+ for(const id of ["headerHome","headerRooms","headerPlay","headerLeaders","headerHelp","headerSettings","headerAccount","headerAdmin"]){
+  $(""+id).setAttribute("aria-current",headers[name]===id?"page":"false");
+ }
+ for(const [id,dest] of [["navGame","play"],["navMoves","moves"],["navReview","review"]]){
+  $(id).setAttribute("aria-current",name===dest?"page":"false");
+ }
+ if(name==="home")window.QuadraCommunity?.loadStats?.();
  if(name==="rooms")window.QuadraCommunity?.loadRooms?.();
  if(name==="community")window.QuadraCommunity?.loadLeaders?.();
  if(name==="review")window.QuadraCommunity?.refreshReview?.();
+ if(name==="admin")window.QuadraAccount?.refreshAdmin?.();
  if(scroll&&window.matchMedia&&window.matchMedia("(max-width: 940px)").matches){
-  $("controls").scrollIntoView({behavior:"smooth",block:"start"});
+  (showArena?$("arena"):$("controls")).scrollIntoView({behavior:"smooth",block:"start"});
  }
 }
 function switchLocation(name){
@@ -146,12 +163,14 @@ function renderPlayers(g){
   const dot=document.createElement("span");dot.className="dot";dot.style.background=playerColors[c];
   name.append(dot,document.createTextNode(names[c]));
   if(online&&!online.spectator&&online.seat===c){const you=document.createElement("span");you.className="you-pill";you.textContent="YOU";name.append(you);}
+  if(online?.seats?.[c]?.role==="superuser"){const badge=document.createElement("span");badge.className="superuser-badge";badge.textContent="✦ SUPERUSER";name.append(badge);}
   const info=document.createElement("small");
   const material=initialsMaterial(g,c);
   const teamName=g.mode==="teams"?" · Team "+(team(c)+1):"";
-  const status=online?.seats?.[c]?.claimed?(online.seats[c].online?" · Online":" · Away"):"";
-  info.textContent=g.alive[c]?material.pieces+" pcs · "+material.n+" pts"+teamName+status:"Eliminated";
+  const status=online?(online.seats?.[c]?.claimed?(online.seats[c].ready?" · Ready":online.seats[c].online?" · Here":" · Away"):" · Open"):"";
+  info.textContent=(online?.seats?.[c]?.alias?"@"+online.seats[c].alias+" · ":"")+(g.alive[c]?material.pieces+" pcs · "+material.n+" pts"+teamName+status:"Eliminated");
   el.append(name,info);
+  if(online?.hostSeat===c){const host=document.createElement("span");host.className="host-tag";host.textContent="HOST";name.append(host);}
   if(online?.clock?.remaining){const timer=document.createElement("strong");timer.className="clock-time";timer.textContent=formattedTime(liveClockMs(c));el.append(timer);}
   playersEl.append(el);
  }
@@ -340,7 +359,19 @@ function updateRoom(){
  $("roomAccessLabel").textContent=(online.visibility==="public"?"PUBLIC":"PRIVATE")+" ROOM";
  $("roomModeLabel").textContent=(online.visibility==="public"?"Public":"Private")+" · "+(online.rated?"Provisional rated":"Casual");
  $("roomSpectators").textContent=(online.spectatorCount||0)+" watching";
+  const host=online.seats[online.hostSeat];
+  $("roomHost").textContent=(host?.alias?"@"+host.alias:"Guest host")+(online.seat===online.hostSeat&&!online.spectator?" · You":"");
+  const audience=$("roomSpectatorList");audience.replaceChildren();
+  if(!online.spectators?.length){const no=document.createElement("span");no.textContent=(online.spectatorCount||0)>0?"Other viewers are guests.":"No signed-in spectators yet.";audience.append(no);}
+  else for(const viewer of online.spectators){
+   const line=document.createElement("div");line.className="spectator-entry";line.textContent="@"+viewer.username;
+   if(viewer.role==="superuser"){const badge=document.createElement("span");badge.className="superuser-badge";badge.textContent=" ✦ SUPERUSER";line.append(badge);}
+   audience.append(line);
+  }
  const isSpectator=!!online.spectator;
+  const isHost=!isSpectator&&online.seat===online.hostSeat;
+  $("hostSettings").classList.toggle("hidden",!isHost);
+  for(const id of ["hostRoomFormat","hostRoomClock","hostRoomRated","hostCustomMinutes","hostCustomIncrement"])$(id).disabled=!!online.ready;
  $("copySpectatorInvite").disabled=online.visibility==="private"&&!online.spectatorKey;
  $("rotateWatchLink").classList.toggle("hidden",isSpectator||online.seat!==online.hostSeat);
  $("copyInvite").classList.toggle("hidden",isSpectator);
@@ -365,7 +396,7 @@ function updateRoom(){
  $("drawVote").disabled=!online.connected||!state.alive[online.seat]||!!online.drawVotes?.[online.seat];
  $("drawVote").textContent=online.drawVotes?.[online.seat]?"Draw vote submitted":"Offer / agree to draw";
  $("drawVotesStatus").textContent=(online.drawVotes||[]).filter(Boolean).length+" / "+state.alive.filter(Boolean).length+" active players agree";
- $("leaveRoom").textContent=isSpectator?"Leave spectator view":online.ready?"Disconnect · keep my seat":"Leave lobby · release seat";
+ $("leaveRoom").textContent=isSpectator?"Stop spectating":online.ready&&!state.winner?"Resign and leave room":"Leave room · release seat";
  if(state.winner){const votes=(online.rematch||[]).filter(Boolean).length;$("rematchVotes").textContent=votes+" / 4 players ready to restart";$("rematchRoom").disabled=!!online.rematch?.[online.seat]||!online.connected;$("rematchRoom").textContent=online.rematch?.[online.seat]?"Rematch vote sent":"Vote for rematch";}
  $("mySeat").textContent=isSpectator?"Spectator":names[online.seat];
  $("roomInput").value=online.room;
@@ -373,7 +404,7 @@ function updateRoom(){
  for(let c=0;c<4;c++){
   const el=document.createElement("div");el.className="room-seat";
   const dot=document.createElement("span");dot.className="dot";dot.style.background=playerColors[c];
-  const name=document.createElement("span");name.textContent=names[c]+(!isSpectator&&online.seat===c?" (you)":"")+(online.seats[c]?.alias?" · @"+online.seats[c].alias:"");
+  const name=document.createElement("span");name.textContent=names[c]+(!isSpectator&&online.seat===c?" (you)":"")+(online.seats[c]?.alias?" · @"+online.seats[c].alias:"")+(online.hostSeat===c?" · HOST":"")+(online.seats[c]?.role==="superuser"?" · ✦ SUPERUSER":"");
   const status=document.createElement("em");
   status.textContent=online.seats[c]?.ready?"Ready":online.seats[c]?.online?"Here":online.seats[c]?.claimed?"Away":"Open";
   if(online.seats[c]?.ready)el.classList.add("is-ready");
@@ -477,7 +508,7 @@ function connectRoom(data){
  backup={state:clone(state),stack:stack.map(clone),orientation};
  const s={room:data.room,seat:data.seat??null,token:data.token||null,spectator:!!data.spectator,watchKey:data.watchKey||null,
  spectatorKey:data.spectatorKey||null,visibility:data.visibility||"private",rated:!!data.rated,hostSeat:0,
- messages:[],spectatorCount:0,ws:null,rev:0,ready:false,filled:false,seatReady:[false,false,false,false],title:data.title||"",clockSettings:data.clockSettings||null,connected:false,awaiting:false,rematch:[false,false,false,false],drawVotes:[false,false,false,false],events:null,replayStates:null,archives:[],gameNo:1,seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
+ messages:[],spectators:[],spectatorCount:0,ws:null,rev:0,ready:false,filled:false,seatReady:[false,false,false,false],title:data.title||"",clockSettings:data.clockSettings||null,connected:false,awaiting:false,rematch:[false,false,false,false],drawVotes:[false,false,false,false],events:null,replayStates:null,archives:[],gameNo:1,seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
  online=s;playLocation="online";reviewIndex=null;selected=-1;targets=[];pending=null;orientation=s.spectator?0:s.seat;
  if(!s.spectator)try{sessionStorage.setItem(ROOM_KEY,JSON.stringify({room:s.room,seat:s.seat,token:s.token,spectatorKey:s.spectatorKey}));}catch(e){}
  switchLocation("online");switchPanel("play");render();
@@ -487,13 +518,14 @@ function connectRoom(data){
   let ws;
   try{ws=new WebSocket(API.replace(/^http/,"ws")+"/ws");}catch(e){onlineMessage("Unable to start the connection.");return;}
   s.ws=ws;
-  ws.onopen=()=>{if(online===s)ws.send(JSON.stringify(s.spectator?{type:"watch",room:s.room,key:s.watchKey}:
+  ws.onopen=()=>{if(online===s)ws.send(JSON.stringify(s.spectator?{type:"watch",room:s.room,key:s.watchKey,session:window.QuadraAccount?.token()||null}:
     {type:"hello",room:s.room,seat:s.seat,token:s.token,session:window.QuadraAccount?.token()||null}));};
   ws.onmessage=event=>{
    if(online!==s)return;let msg;try{msg=JSON.parse(event.data);}catch(e){return;}
    if(msg.type==="welcome"){s.connected=true;s.attempts=0;onlineMessage(s.spectator?"Watching the room in read-only mode.":"Connected as "+names[s.seat]+".");render();return;}
    if(msg.type==="error"){s.awaiting=false;onlineMessage("Server: "+msg.error);render();return;}
    if(msg.type==="vacated"){leaveRoom(true);return;}
+   if(msg.type==="room-closed"){const message=msg.message||"Room closed.";leaveRoom(true);tell(message);return;}
    if(msg.type==="notice"){tell(msg.message||"Update received.");return;}
    if(msg.type==="spectator-key"&&typeof msg.key==="string"){
     s.spectatorKey=msg.key;
@@ -509,21 +541,32 @@ function connectRoom(data){
    if(msg.type==="state"){
     s.rev=msg.revision;s.seats=msg.seats||s.seats;
     s.visibility=msg.visibility||s.visibility;s.rated=!!msg.rated;s.hostSeat=Number.isInteger(msg.hostSeat)?msg.hostSeat:s.hostSeat;
-    s.messages=Array.isArray(msg.messages)?msg.messages:s.messages;s.spectatorCount=msg.spectatorCount||0;
+    s.messages=Array.isArray(msg.messages)?msg.messages:s.messages;s.spectatorCount=msg.spectatorCount||0;s.spectators=Array.isArray(msg.spectators)?msg.spectators:[];
     s.seatReady=msg.seatReady||s.seatReady;s.filled=!!msg.filled;s.title=msg.title||s.title;s.rematch=msg.rematch||s.rematch;s.drawVotes=msg.drawVotes||s.drawVotes;
     s.archives=msg.archives||[];s.gameNo=msg.gameNo||1;s.events=msg.events;s.ready=!!msg.ready;s.awaiting=false;s.clock=msg.clock||null;s.clockSettings=msg.clock||s.clockSettings;s.clockReceivedAt=Date.now();s.persistent=!!msg.persistent;s.variant=msg.variant||s.variant; if(s.clock)s.clockPreset=s.clock.preset;
     if(safeState(msg.game))state=msg.game;
+    $("hostRoomTitle").value=s.title||"";
+    $("hostRoomVisibility").value=s.visibility;
+    $("hostRoomRated").checked=s.rated;
+    $("hostRoomFormat").value=state.mode;
+    $("hostRoomClock").value=s.clockPreset||"untimed";
+    if($("hostRoomClock").value!==s.clockPreset)$("hostRoomClock").value="custom";
+    if(s.clockPreset==="custom"){
+     $("hostCustomMinutes").value=String(Math.round((s.clockSettings?.initialMs||300000)/60000));
+     $("hostCustomIncrement").value=String(Math.round((s.clockSettings?.incrementMs||0)/1000));
+    }
+    $("hostCustomTime").classList.toggle("hidden",$("hostRoomClock").value!=="custom");
     const positions=window.QuadraReplay?.replay(s.events,state.mode,E);
     s.replayStates=positions&&positions.length===state.moves.length+1?positions:null;
     reviewIndex=null;selected=-1;targets=[];render();
     window.QuadraCommunity?.refreshReview?.();
-    onlineMessage(s.ready?"Game started · "+s.seats.filter(v=>v.online).length+" online":"Lobby · "+s.seats.filter(v=>v.claimed).length+"/4 seats · "+s.seatReady.filter(Boolean)+"/4 ready");
+    onlineMessage(s.ready?"Game started · "+s.seats.filter(v=>v.online).length+" online":"Lobby · "+s.seats.filter(v=>v.claimed).length+"/4 seats · "+s.seatReady.filter(Boolean).length+"/4 ready");
     return;
    }
   };
   ws.onclose=event=>{
    if(online!==s||s.closed)return;s.connected=false;s.awaiting=false;render();
-   if(event.code===4003||event.code===4004){onlineMessage("Room expired or credentials rejected. Leave the room to start again.");return;}
+   if(event.code===4003||event.code===4004){onlineMessage("Room no longer accessible. Returning to rooms.");leaveRoom(true);return;}
    const delay=Math.min(30000,1000*Math.pow(2,Math.min(5,s.attempts++)));
    onlineMessage("Connection interrupted · reconnecting…");retryTimer=setTimeout(socketConnect,delay);
   };
@@ -553,7 +596,7 @@ async function enterRoom(which){
   const preference=$("preferredSeat").value;
   const seat=preference===""?null:Number(preference);
   let clock=$("onlineClock").value;
-  if(clock==="custom"){
+  if(which==="create"&&clock==="custom"){
    const minutes=Number($("customMinutes").value),incrementSeconds=Number($("customIncrement").value);
    if(!Number.isInteger(minutes)||minutes<1||minutes>180||!Number.isInteger(incrementSeconds)||incrementSeconds<0||incrementSeconds>60)throw Error("Custom time: 1–180 minutes and 0–60 seconds per move.");
    clock={type:"custom",minutes,incrementSeconds};
@@ -568,18 +611,27 @@ async function enterRoom(which){
 function leaveRoom(vacated=false){
  if(!online)return;
  const s=online;
- if(!s.spectator&&!vacated&&!s.ready&&s.connected&&s.ws?.readyState===WebSocket.OPEN){
-  s.ws.send(JSON.stringify({type:"vacate"}));onlineMessage("Releasing your unused seat…");return;
+ if(!s.spectator&&!vacated){
+  if(!s.connected||s.ws?.readyState!==WebSocket.OPEN){tell("Reconnect to release your seat. Disconnecting alone does not remove the room.");return;}
+  if(s.ready&&!state.winner&&!confirm("Leaving a live game resigns your color. Continue?"))return;
+  s.ws.send(JSON.stringify({type:"vacate"}));onlineMessage("Leaving room and releasing seat…");return;
  }
- const keepCredentials=!s.spectator&&(s.ready||(!vacated&&!s.connected));
  s.closed=true;if(retryTimer)clearTimeout(retryTimer);s.ws?.close();
  online=null;
- if(!keepCredentials)try{sessionStorage.removeItem(ROOM_KEY);}catch(e){}
+ try{sessionStorage.removeItem(ROOM_KEY);}catch(e){}
  if(backup){state=backup.state;stack=backup.stack;orientation=backup.orientation;}
  else{state=fresh("ffa");stack=[];}
  backup=null;reviewIndex=null;selected=-1;targets=[];pending=null;
  switchLocation("local");switchPanel("rooms");render();
- tell(keepCredentials?"Disconnected. Your seat is reserved; reconnect from this tab.":"Lobby seat released. Back to local play.");
+ if(!vacated)tell("Returned to the public rooms.");
+}
+async function joinByCode(code){
+ if(online){tell("Leave your current room before joining another.");return;}
+ const room=String(code||"").trim().toUpperCase();
+ if(!/^[A-F0-9]{7}$/.test(room)){tell("Enter the seven-character room code.");return;}
+ $("roomInput").value=room;$("preferredSeat").value="";
+ switchPanel("play",true);switchLocation("online");
+ await enterRoom("join");
 }
 function watchRoom(room,key=null){
  if(online){tell("Leave your current room before watching another.");return;}
@@ -603,8 +655,24 @@ function copyInvite(){
 function bind(){
  for(const button of document.querySelectorAll("[data-tab]"))button.addEventListener("click",()=>switchPanel(button.dataset.tab,false));
  $("headerHelp").addEventListener("click",()=>switchPanel("rules",true));
+ $("headerSettings").addEventListener("click",()=>switchPanel("settings",true));
+ for(const [id,page] of [["navGame","play"],["navMoves","moves"],["navReview","review"]])$(id).addEventListener("click",()=>switchPanel(page,true));
+ $("headerHome").addEventListener("click",()=>switchPanel("home",true));
  $("headerRooms").addEventListener("click",()=>switchPanel("rooms",true));
+ $("headerPlay").addEventListener("click",()=>switchPanel("play",true));
+ $("headerLeaders").addEventListener("click",()=>switchPanel("community",true));
  $("headerAccount").addEventListener("click",()=>switchPanel("account",true));
+ $("headerAdmin").addEventListener("click",()=>switchPanel("admin",true));
+ $("brandHome").addEventListener("click",e=>{e.preventDefault();switchPanel("home",true);});
+ for(const [id,page] of [["homeRooms","rooms"],["homeWatch","rooms"],["homeRules","rules"]])$(id).addEventListener("click",()=>switchPanel(page,true));
+ const host=()=>{switchPanel("play",true);switchLocation("online");};
+ $("homeCreate").addEventListener("click",host);
+ for(const id of ["homeLocal","roomsLocal"])$(id).addEventListener("click",()=>{switchPanel("play",true);switchLocation("local");});
+ for(const [button,input] of [["homeJoin","homeJoinCode"],["quickJoinButton","quickJoinCode"]]){
+  $(button).addEventListener("click",()=>joinByCode($(input).value));
+  $(input).addEventListener("input",e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-F0-9]/g,"").slice(0,7);});
+  $(input).addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$(button).click();}});
+ }
  $("onlineClock").addEventListener("change",e=>$("customTimeFields").classList.toggle("hidden",e.target.value!=="custom"));
  $("localMode").addEventListener("click",()=>switchLocation("local"));
  $("onlineMode").addEventListener("click",()=>switchLocation("online"));
@@ -653,6 +721,28 @@ function bind(){
  $("copyInvite").addEventListener("click",copyInvite);
  $("copySpectatorInvite").addEventListener("click",copySpectatorInvite);
  $("rotateWatchLink").addEventListener("click",()=>{if(online?.connected&&!online.spectator&&online.seat===online.hostSeat)online.ws.send(JSON.stringify({type:"spectator-key-rotate"}));});
+ $("hostRoomClock").addEventListener("change",()=>{ $("hostCustomTime").classList.toggle("hidden",$("hostRoomClock").value!=="custom");});
+ $("saveHostSettings").addEventListener("click",()=>{
+  if(!online?.connected||online.spectator||online.seat!==online.hostSeat)return;
+  const payload={type:"room-settings",title:$("hostRoomTitle").value.trim(),
+   visibility:$("hostRoomVisibility").value,rated:online.ready?online.rated:$("hostRoomRated").checked,
+   mode:online.ready?state.mode:$("hostRoomFormat").value};
+  if(!online.ready){
+   payload.clock=$("hostRoomClock").value;
+   if(payload.clock==="custom"){
+    const minutes=Number($("hostCustomMinutes").value),incrementSeconds=Number($("hostCustomIncrement").value);
+    if(!Number.isInteger(minutes)||minutes<1||minutes>180||!Number.isInteger(incrementSeconds)||incrementSeconds<0||incrementSeconds>60){tell("Custom time must be 1–180 minutes and 0–60 seconds increment.");return;}
+    payload.clock={type:"custom",minutes,incrementSeconds};
+   }
+  }
+  online.ws.send(JSON.stringify(payload));
+  onlineMessage("Saving room settings…");
+ });
+ $("deleteHostedRoom").addEventListener("click",()=>{
+  if(!online?.connected||online.spectator||online.seat!==online.hostSeat)return;
+  if(!confirm("Permanently delete this room for every player and spectator? The room cannot be restored."))return;
+  online.ws.send(JSON.stringify({type:"delete-room"}));
+ });
  $("nextRound").addEventListener("click",()=>{if(online?.connected&&!online.spectator&&online.seat===online.hostSeat&&state.winner&&confirm("Open a fresh match in this room? Chat and archived matches will stay."))online.ws.send(JSON.stringify({type:"new-round"}));});
  $("sendChat").addEventListener("click",()=>{
   if(!online?.connected||online.spectator){tell("Join as a player to chat.");return;}
@@ -684,7 +774,7 @@ function bind(){
 }
 function init(){
  try{const old=JSON.parse(localStorage.getItem(PREFS_KEY)||"null");if(old&&typeof old==="object")prefs={...initialPrefs,...old};}catch(e){}
- const resumed=restoreAuto();updateTheme();bind();
+ const resumed=restoreAuto();updateTheme();bind();switchPanel("home");
  if(resumed&&prefs.follow)orientation=state.turn;
  const invited=new URLSearchParams(location.search).get("room");
  const watchCode=new URLSearchParams(location.search).get("watch");
@@ -693,14 +783,16 @@ function init(){
   watchRoom(watchCode,watchKey);return;
  }
  if(invited&&/^[A-F0-9]{7}$/i.test(invited)){
-  $("roomInput").value=invited.toUpperCase();switchLocation("online");onlineMessage("Invitation detected. Select Join room to take a seat.");
+  $("roomInput").value=invited.toUpperCase();
+  onlineMessage("Invite detected · joining room…");
+  setTimeout(()=>{if(!online)joinByCode(invited);},400);
  }
  render();
  if(resumed&&state.moves.length)tell("Your local game was restored.");
 }
 init();
 window.QuadraApp={getState:()=>state,getReviewIndex:()=>reviewIndex,changePanel:switchPanel,openRoom:connectRoom,
- watchRoom,isOnline:()=>!!online,refresh:render,getPositions:()=>online?.replayStates||localReplayFrames(),
+ watchRoom,joinRoomCode:joinByCode,isOnline:()=>!!online,refresh:render,getPositions:()=>online?.replayStates||localReplayFrames(),
  getOnline:()=>online?{room:online.room,seat:online.seat,spectator:online.spectator,rated:online.rated,visibility:online.visibility,ready:online.ready,
   gameNo:online.gameNo,hostSeat:online.hostSeat}:null,
  reviewPly:(i)=>{if(Number.isInteger(i)&&i>=0&&i<=reviewLength()){reviewIndex=i===reviewLength()?null:i;selected=-1;targets=[];render();switchPanel("moves",true);}}

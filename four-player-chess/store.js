@@ -3,7 +3,7 @@ const DAY=86_400_000;
 const ROOM_TTL=29*DAY;
 function serialize(room){
  return {id:room.id,revision:room.rev,game:room.game,variant:room.variant,
-  seats:room.seats.map(s=>s?{tokenHash:s.tokenHash,lastSeen:s.lastSeen,userId:s.userId||null,alias:s.alias||null}:null),
+  seats:room.seats.map(s=>s?{tokenHash:s.tokenHash,lastSeen:s.lastSeen,userId:s.userId||null,alias:s.alias||null,joinedAt:s.joinedAt||room.created,role:s.role||"user"}:null),
   clock:room.clock,rematch:room.rematch,drawVotes:room.drawVotes,events:room.events,archives:room.archives,gameNo:room.gameNo,
   visibility:room.visibility||"private",rated:!!room.rated,hostSeat:Number.isInteger(room.hostSeat)?room.hostSeat:0,
   spectatorHash:room.spectatorHash||null,
@@ -13,7 +13,7 @@ function serialize(room){
 function deserialize(data){
  if(!data||typeof data.id!=="string"||!/^[A-F0-9]{7}$/.test(data.id)||!data.game||!Array.isArray(data.seats)||data.seats.length!==4||!Number.isInteger(data.revision))throw Error("Invalid stored room.");
  return {id:data.id,rev:data.revision,game:data.game,variant:data.variant||null,
-  seats:data.seats.map(s=>s?{tokenHash:s.tokenHash,lastSeen:Number.isFinite(s.lastSeen)?s.lastSeen:(Number(data.updated)||Date.now()),userId:s.userId||null,alias:s.alias||null,ws:null}:null),
+  seats:data.seats.map(s=>s?{tokenHash:s.tokenHash,lastSeen:Number.isFinite(s.lastSeen)?s.lastSeen:(Number(data.updated)||Date.now()),userId:s.userId||null,alias:s.alias||null,joinedAt:Number(s.joinedAt)||Number(data.created)||Date.now(),role:s.role||"user",ws:null}:null),
   clock:data.clock||null,rematch:Array.isArray(data.rematch)&&data.rematch.length===4?data.rematch:[false,false,false,false],
   drawVotes:Array.isArray(data.drawVotes)&&data.drawVotes.length===4?data.drawVotes:[false,false,false,false],
   events:Array.isArray(data.events)?data.events:(data.game.moves?.length?null:[]),

@@ -292,3 +292,30 @@ test("room chat history is visible and can be locally hidden without exposing ac
  hide.emit("click");
  assert.equal(nodes.chatList.children[0].children[1].textContent,"Hidden on this device");
 });
+
+test("home hub, global pages and contextual game navigation remain accessible",()=>{
+ const {nodes}=launch();
+ assert.equal(nodes.homeScreen.classList.contains("hidden"),false);
+ assert.equal(nodes.workLayout.classList.contains("hidden"),true);
+ nodes.headerRooms.emit("click");
+ assert.equal(nodes.homeScreen.classList.contains("hidden"),true);
+ assert.equal(nodes.arena.classList.contains("hidden"),true);
+ nodes.headerPlay.emit("click");
+ assert.equal(nodes.arena.classList.contains("hidden"),false);
+ nodes.navMoves.emit("click");
+ assert.equal(nodes["panel-moves"].classList.contains("hidden"),false);
+ nodes.navReview.emit("click");
+ assert.equal(nodes["panel-review"].classList.contains("hidden"),false);
+ nodes.headerSettings.emit("click");
+ assert.equal(nodes["panel-settings"].classList.contains("hidden"),false);
+ nodes.headerHome.emit("click");
+ assert.equal(nodes.homeScreen.classList.contains("hidden"),false);
+});
+test("one-code room joining bypasses the advanced room host form",async()=>{
+ const {nodes,requests,window}=launch();
+ nodes.homeJoinCode.value="abc1234";
+ await nodes.homeJoin.emit("click");
+ assert.equal(requests.some(r=>r.url.endsWith("/api/rooms/ABC1234/join")),true);
+ assert.equal(window.QuadraApp.isOnline(),true);
+ assert.equal(nodes["panel-play"].classList.contains("hidden"),false);
+});
