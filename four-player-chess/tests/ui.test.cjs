@@ -104,7 +104,7 @@ test("settings change board colors and legal destination visibility",()=>{
 test("private online room handshake gates moves and submits server move",async()=>{
  const {nodes,sockets,requests}=launch();
  nodes.onlineMode.emit("click");
- assert.equal(nodes.onlineMode.attrs["aria-pressed"],"true");
+ assert.equal(nodes["panel-create"].classList.contains("hidden"),false);
  await nodes.createRoom.emit("click");
  assert.equal(requests.length,1);
  assert.equal(sockets.length,1);
@@ -181,7 +181,7 @@ test("disconnecting a pregame lobby sends a seat release request",async()=>{
  assert.equal(ws.sent.at(-1).type,"vacate");
  ws.receive({type:"vacated"});
  assert.equal(sessionStorage.getItem("quadra-online"),null);
- assert.equal(nodes.localMode.attrs["aria-pressed"],"true");
+ assert.equal(nodes["tab-rooms"].attrs["aria-selected"],"true");
 });
 
 test("local resignation and agreed draw support undo and autosave",()=>{
