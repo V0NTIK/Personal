@@ -21,7 +21,7 @@
       <button type="button" id="headerRooms" class="text-link">Room lobby</button>
       <button type="button" id="headerPlay" class="text-link">Local play</button>
       <button type="button" id="headerCreate" class="text-link">Create / Join</button>
-      <button type="button" id="headerRoom" class="text-link hidden">My room</button>
+      <button type="button" id="headerRoom" class="text-link">My rooms <span id="headerRoomCount" class="room-count">0</span></button>
       <button type="button" id="headerLeaders" class="text-link">Leaders</button>
       <button type="button" id="headerHelp" class="text-link">Help</button>
       <button type="button" id="headerSettings" class="text-link">Settings</button>
@@ -118,6 +118,7 @@
       <div class="tabs" role="tablist" aria-label="Panels">
         <button type="button" class="tab hidden" id="tab-local" data-tab="local" role="tab" aria-controls="panel-local" aria-selected="false">Local</button>
         <button type="button" class="tab hidden" id="tab-create" data-tab="create" role="tab" aria-controls="panel-create" aria-selected="false">Create</button>
+        <button type="button" class="tab hidden" id="tab-myrooms" data-tab="myrooms" role="tab" aria-controls="panel-myrooms" aria-selected="false">My rooms</button>
         <button type="button" class="tab" id="tab-rooms" data-tab="rooms" role="tab" aria-controls="panel-rooms" aria-selected="true">Rooms</button>
         <button type="button" class="tab" id="tab-play" data-tab="play" role="tab" aria-controls="panel-play" aria-selected="false">Play</button>
         <button type="button" class="tab" id="tab-moves" data-tab="moves" role="tab" aria-controls="panel-moves" aria-selected="false">Moves</button>
@@ -128,23 +129,38 @@
         <button type="button" class="tab" id="tab-account" data-tab="account" role="tab" aria-controls="panel-account" aria-selected="false">Account</button>
         <button type="button" class="tab hidden" id="tab-admin" data-tab="admin" role="tab" aria-controls="panel-admin" aria-selected="false">Admin</button>
       </div>
+      <section class="tab-panel hidden" id="panel-myrooms" role="tabpanel" aria-labelledby="tab-myrooms">
+        <div class="panel-eyebrow">YOUR SPACE</div><h2>My rooms</h2>
+        <p class="panel-desc">Stay connected to several games and spectate several rooms. Open one room at a time to interact; the others stay connected in the background.</p>
+        <div class="myrooms-actions"><button id="myroomsBrowse" class="button primary" type="button">Browse public rooms</button><button id="myroomsCreate" class="button ghost" type="button">Create / join a room</button></div>
+        <div class="myrooms-explanation"><strong>How presence works</strong><p>Here = currently viewing. Away = connected in another room or another page. Ready status and running chess clocks continue independently. Leaving a room is separate from switching away.</p></div>
+        <div class="myrooms-header"><h3>Playing</h3><span id="myPlayingCount">0 rooms</span></div>
+        <div class="myrooms-list" id="myPlayingRooms"></div>
+        <div class="myrooms-header"><h3>Spectating</h3><span id="myWatchingCount">0 rooms</span></div>
+        <div class="myrooms-list" id="myWatchingRooms"></div>
+        <div class="myrooms-header"><h3>Other rooms linked to your account</h3><button class="button ghost" id="myroomsRefresh" type="button">Refresh</button></div>
+        <p id="myroomsSavedStatus" class="notice">Sign in to recover rooms you joined from another device or earlier session.</p>
+        <div class="myrooms-list" id="mySavedRooms"></div>
+      </section>
       <section class="tab-panel" id="panel-rooms" role="tabpanel" aria-labelledby="tab-rooms">
         <div class="panel-eyebrow">COMMUNITY LOBBY</div>
         <h2>Find your next room.</h2>
         <p class="panel-desc">Browse public rooms, watch ongoing games, or make a place for friends to return to.</p>
-        <div class="rooms-intro-actions"><button type="button" class="button primary" id="roomsCreate">Create or join a private room</button></div>
-        <p class="room-help">This is the public room directory. Browse available seats or watch a game; private invitations belong on Create / Join.</p>
-        <div class="rule-divider"></div>
-        <div class="two-buttons">
-          <div class="field"><label for="roomSearch" class="field-label">SEARCH ROOMS</label><input id="roomSearch" class="input" placeholder="Name or code" autocomplete="off"></div>
-          <div class="field"><label for="roomFilter" class="field-label">SHOW</label>
-            <select id="roomFilter" class="select"><option value="all">All public</option><option value="join">Open seats</option><option value="watch">Games to watch</option><option value="rated">Rated rooms</option></select>
-          </div>
+        <div class="lobby-actions"><button type="button" class="button primary" id="roomsCreate">+ New room</button><button type="button" class="button ghost" id="roomsMyRooms">My rooms</button><button type="button" class="button ghost" id="refreshPublicRooms">Refresh</button></div>
+        <div class="lobby-summary">
+          <div><strong id="lobbyTotal">—</strong><span>Public rooms</span></div>
+          <div><strong id="lobbyJoinable">—</strong><span>Open to join</span></div>
+          <div><strong id="lobbyLive">—</strong><span>Live matches</span></div>
         </div>
-        <div class="field"><label for="roomSort" class="field-label">SORT ROOMS</label>
-          <select class="select" id="roomSort"><option value="rating">Average rating · Highest first</option><option value="audience">Most spectators</option><option value="players">Most players</option><option value="recent">Recently active</option></select></div>
-        <button type="button" class="button ghost full" id="refreshPublicRooms">Refresh public rooms</button>
-        <p class="room-help" id="publicRoomStatus" role="status" aria-live="polite">Loading public rooms…</p>
+        <div class="lobby-section-heading"><h3>Explore rooms</h3><p>Public games you can join or watch. Your private rooms stay under My rooms.</p></div>
+        <div class="lobby-toolbar">
+          <div class="lobby-search"><label for="roomSearch" class="field-label">FIND A ROOM</label><input id="roomSearch" class="input" placeholder="Search name or room code" autocomplete="off"></div>
+          <div class="lobby-filter"><label for="roomFilter" class="field-label">SHOW</label>
+            <select id="roomFilter" class="select"><option value="all">All rooms</option><option value="join">Open seats</option><option value="watch">Live / watchable</option><option value="rated">Rated only</option></select></div>
+          <div class="lobby-sort"><label for="roomSort" class="field-label">ORDER</label>
+            <select id="roomSort" class="select"><option value="recent">Recently active</option><option value="players">Most players</option><option value="audience">Most watched</option><option value="rating">Highest average rating</option></select></div>
+        </div>
+        <p class="room-help lobby-status" id="publicRoomStatus" role="status" aria-live="polite">Loading public rooms…</p>
         <div class="public-room-list" id="publicRoomList"></div>
         <p class="notice">Room ratings show the average provisional rating of signed-in participants, not an official Chess.com rating. Private rooms never appear here.</p>
       </section>
@@ -337,20 +353,31 @@
         </div>
       </section>
       <section class="tab-panel hidden" id="panel-community" role="tabpanel" aria-labelledby="tab-community">
-        <div class="panel-eyebrow">QUADRA LEADERS</div>
-        <h2>Friendly competition.</h2>
-        <p class="panel-desc">Provisional ratings from completed rated games. They're separate from Chess.com ratings.</p>
-        <div class="field"><label for="leaderboardMode" class="field-label">MODE</label>
-          <select id="leaderboardMode" class="select"><option value="ffa">Free-for-all</option><option value="teams">Teams</option></select>
+        <div class="leader-hero">
+          <div><div class="panel-eyebrow">QUADRA RANKINGS</div><h2>Leaders</h2>
+            <p class="panel-desc">Community standings from rated games. These provisional Elo ratings are independent of Chess.com.</p></div>
+          <div class="leader-summary"><strong id="leaderTotalPlayers">—</strong><span>Ranked players</span></div>
         </div>
-        <button type="button" id="refreshLeaders" class="button ghost full">Refresh leaderboard</button>
-        <p class="room-help" id="leaderboardStatus" role="status">No rated games yet.</p>
-        <div id="leaderboardList" class="leaderboard-list"></div>
-        <div class="rule-divider"></div>
-        <h3>Achievements</h3>
-        <p class="notice">Create an account to earn First Match, First Victory, Regular, Veteran, Diplomat, and Rising Star milestones.</p>
-        <div id="communityAchievements" class="achievement-list"></div>
-        <p class="notice">Ratings start at 1200, remain provisional for ten games, and limit repeated rating gains with the same four players.</p>
+        <div class="leader-controls">
+          <div><label for="leaderboardMode" class="field-label">GAME MODE</label>
+            <select id="leaderboardMode" class="select"><option value="ffa">Free-for-all</option><option value="teams">Teams</option></select></div>
+          <button type="button" id="refreshLeaders" class="button ghost">Refresh standings</button>
+        </div>
+        <p id="leaderboardStatus" class="leader-status" role="status" aria-live="polite">Loading rankings…</p>
+        <section class="leader-board-section" aria-label="Top-ranked players">
+          <div class="leader-section-head"><h3>Top competitors</h3><span>Provisional Elo</span></div>
+          <div class="leader-podium" id="leaderPodium"></div>
+        </section>
+        <section class="leader-board-section" aria-label="Full standings">
+          <div class="leader-section-head"><h3>Standings</h3><span>Games · Wins · Rating</span></div>
+          <div id="leaderboardList" class="leaderboard-list"></div>
+        </section>
+        <section class="leader-achievements">
+          <div class="leader-section-head"><h3>Your achievements</h3><span>Account milestones</span></div>
+          <p class="notice">Sign in to earn First Match, First Victory, Regular, Veteran, Diplomat, and Rising Star.</p>
+          <div id="communityAchievements" class="achievement-list"></div>
+          <p class="notice">New players start at 1200 provisional Elo. Ratings are provisional for ten rated games, and repeat-match gains are limited.</p>
+        </section>
       </section>
       <section class="tab-panel hidden" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings">
         <div class="panel-eyebrow">PREFERENCES</div>
