@@ -338,3 +338,109 @@ body[data-screen="settings"] .tab-panel,body[data-screen="rules"] .tab-panel{max
 .game-navigation button:hover{background:#23453a;color:#e2f6e9}
 .game-navigation button[aria-current="page"]{background:#a8eaca;color:#173327}
 @media(max-width:680px){.game-navigation{margin-bottom:9px}.game-navigation button{min-height:40px}}
+
+/* v0.9 — separate local, lobby, setup, staging and live match experiences */
+body[data-screen="local"] .layout:not(.hidden){display:grid!important;grid-template-columns:minmax(0,1fr) minmax(300px,360px);max-width:1420px;margin:0 auto}
+body[data-screen="local"] .sidebar{position:relative;top:auto;min-height:unset}
+body[data-screen="local"] #panel-local{padding:25px}
+body[data-screen="local"] #panel-local h2{font-size:20px}
+body[data-screen="create"] .layout:not(.hidden){display:block!important;max-width:1200px}
+body[data-screen="create"] .sidebar{min-height:unset}
+body[data-screen="create"] #panel-create{display:grid;grid-template-columns:minmax(0,.85fr) 28px minmax(0,1.15fr);column-gap:20px;align-items:start;padding:clamp(24px,3vw,40px)}
+body[data-screen="create"] #panel-create>.panel-eyebrow,
+body[data-screen="create"] #panel-create>h2,
+body[data-screen="create"] #panel-create>.panel-desc,
+body[data-screen="create"] #setupStatus{grid-column:1/-1}
+body[data-screen="create"] #panel-create>h2{font-size:clamp(24px,3vw,32px);margin-bottom:8px}
+body[data-screen="create"] #panel-create>.panel-desc{font-size:14px;margin-bottom:25px}
+.setup-card-label{font-size:10px;letter-spacing:1.8px;color:#9ddbb5;font-weight:900;margin-bottom:12px}
+.setup-join-card,.setup-host-card{min-width:0;background:#182b33;border:1px solid #38524f;border-radius:17px;padding:clamp(19px,2.5vw,28px)}
+.setup-join-card{display:flex;flex-direction:column;gap:8px}
+.setup-join-card h3,.setup-host-card>h3{font-size:18px;line-height:1.4;color:#eaf8ef;letter-spacing:0;text-transform:none;margin:0}
+.setup-join-card p{color:#adc3c1;font-size:13px;line-height:1.6;margin:0 0 12px}
+.setup-host-card{background:#1a302d;border-color:#486a56}
+.setup-host-card #onlineLobby>.room-help:first-child,.setup-host-card #onlineLobby>.create-heading{display:none}
+.setup-host-card #onlineLobby .field{margin:14px 0}
+.setup-host-card #onlineLobby .notice{margin-bottom:18px}
+.setup-divider{align-self:stretch;display:flex;justify-content:center;align-items:center;color:#93a9ab;font-size:10px;font-weight:900}
+.setup-divider:before,.setup-divider:after{content:"";display:block;width:1px;flex:1;background:#354b50}
+.setup-divider{flex-direction:column;gap:12px;padding:5px 0}
+.setup-divider span{background:#24363c;border:1px solid #4a6060;border-radius:50px;padding:8px 5px}
+body[data-screen="rooms"] #panel-rooms>.rooms-intro-actions{max-width:390px;margin:18px 0}
+body[data-screen="rooms"] #panel-rooms>.room-help{font-size:13px}
+.waiting-room-screen{max-width:1270px;margin:0 auto;padding:clamp(22px,4vw,48px) 0 54px}
+.waiting-hero{text-align:center;border:1px solid #3f6356;background:radial-gradient(circle at 50% 0,#284e41,transparent 70%),#12262a;border-radius:20px;padding:clamp(25px,4vw,52px) 22px 28px;margin-bottom:20px}
+.waiting-kicker{font-size:11px;font-weight:900;letter-spacing:2.1px;color:#b4eccb;display:flex;justify-content:center;align-items:center;gap:9px}
+.waiting-live-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#a1e7b4;box-shadow:0 0 0 5px #a1e7b425}
+.waiting-hero h1{font-size:clamp(30px,4.3vw,52px);margin:14px 0 12px;overflow-wrap:anywhere}
+.waiting-hero>p{max-width:660px;margin:0 auto;font-size:14px}
+.waiting-metrics{display:flex;gap:clamp(12px,3.5vw,50px);justify-content:center;flex-wrap:wrap;margin:25px 0 13px}
+.waiting-metric{min-width:130px;display:grid;gap:2px}
+.waiting-metric strong{font-family:Manrope,system-ui,sans-serif;font-size:30px;color:#effdf5;font-variant-numeric:tabular-nums}
+.waiting-metric span{font-size:11px;color:#9dbfb2}
+#waitingStatus{font-size:12px;color:#a7d7bb;margin:10px auto 0}
+.waiting-room-content #roomDetails{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr);gap:16px;align-items:start}
+.waiting-room-content #roomDetails>.room-box{grid-column:1;grid-row:1/span 4;margin:0;padding:clamp(18px,2.5vw,28px);background:#182e32;border:1px solid #43645c;border-radius:16px}
+.waiting-room-content #roomDetails>.room-chat{grid-column:2;grid-row:1;margin:0;background:#162631;border-radius:16px;padding:20px;min-height:300px}
+.waiting-room-content #roomDetails>#leaveRoom{grid-column:2;grid-row:2}
+.waiting-room-content #roomDetails>#nextRoundControls,
+.waiting-room-content #roomDetails>#rematchControls,
+.waiting-room-content #roomDetails>#matchActions{grid-column:2}
+.waiting-room-content #roomDetails .room-code{font-size:clamp(23px,3vw,34px);letter-spacing:4px}
+.waiting-room-content .room-seats{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.waiting-room-content .room-seat{padding:17px 13px;min-height:110px;border-radius:13px;background:#172b32;display:grid;grid-template-columns:auto minmax(0,1fr);align-content:center}
+.waiting-room-content .room-seat .seat-presence{grid-column:2;margin:0;font-weight:800;font-size:12px}
+.waiting-room-content .room-seat .seat-identity{align-items:flex-start}
+.waiting-room-content #readyControls{margin-top:20px;padding-top:17px}
+.waiting-room-content #readyButton{font-size:14px;min-height:48px}
+.waiting-room-content .chat-list{height:300px}
+.waiting-room-content .host-settings{margin-top:18px}
+.seat-identity{display:flex;flex-direction:column;gap:3px;align-items:flex-start;min-width:0;overflow-wrap:anywhere;flex:1}
+.seat-identity .seat-name{font-size:12px;color:#e7f8ed}
+.seat-identity small{font-size:11px;color:#afcfc0;max-width:100%;overflow-wrap:anywhere}
+.room-seat{min-width:0;flex-wrap:wrap;align-items:center}
+.room-seat .seat-presence{margin-left:auto;font-size:11px;font-style:normal}
+.room-seat.seat-ready{border-color:#6eb996;background:#203b33}
+.room-seat.seat-away{opacity:.76}
+.room-seat.seat-open{border-style:dashed}
+.superuser-badge,.player .superuser-badge,.spectator-entry .superuser-badge,.account-identity .superuser-badge{display:inline-flex;align-items:center;justify-content:center;gap:3px;max-width:100%;flex:0 0 auto;width:max-content;min-height:20px;font-size:10px!important;font-weight:900;letter-spacing:.15px!important;line-height:1.3;white-space:nowrap;color:#ffe8b4!important;background:#51432d;border:1px solid #92784a;border-radius:6px;padding:3px 7px;margin:4px 0 0}
+.player{overflow:visible}
+.player .pname{white-space:normal;min-width:0;flex-wrap:wrap;overflow-wrap:anywhere}
+.player small{white-space:normal;overflow-wrap:anywhere;line-height:1.45}
+.player .superuser-badge{margin:7px 0 0}
+.player .host-tag{margin:2px 0 0;font-size:9px}
+.room-seat .superuser-badge{margin:3px 0}
+.account-identity{align-items:center;gap:8px}
+.account-identity #accountName{max-width:100%;overflow-wrap:anywhere}
+@media(max-width:1000px){
+ body[data-screen="create"] #panel-create{grid-template-columns:minmax(0,1fr) 22px minmax(0,1.1fr);gap:12px}
+ .waiting-room-content #roomDetails{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+}
+@media(max-width:940px){
+ body[data-screen="local"] .layout:not(.hidden){grid-template-columns:1fr;max-width:800px}
+ body[data-screen="local"] #panel-local{padding:24px}
+}
+@media(max-width:750px){
+ body[data-screen="create"] #panel-create{display:flex;flex-direction:column;gap:16px}
+ body[data-screen="create"] #panel-create>.panel-eyebrow,
+ body[data-screen="create"] #panel-create>h2,
+ body[data-screen="create"] #panel-create>.panel-desc{width:100%;margin:0}
+ .setup-join-card,.setup-host-card{width:100%}
+ .setup-divider{width:100%;flex-direction:row;padding:0}
+ .setup-divider:before,.setup-divider:after{height:1px;width:auto}
+ .waiting-room-content #roomDetails{grid-template-columns:1fr}
+ .waiting-room-content #roomDetails>.room-box,.waiting-room-content #roomDetails>.room-chat,
+ .waiting-room-content #roomDetails>#leaveRoom,.waiting-room-content #roomDetails>#nextRoundControls,
+ .waiting-room-content #roomDetails>#rematchControls,.waiting-room-content #roomDetails>#matchActions{grid-column:1;grid-row:auto}
+ .waiting-room-content #roomDetails>.room-chat{min-height:unset}
+ .waiting-room-screen{padding-top:17px}
+ .waiting-metric{min-width:90px}
+}
+@media(max-width:430px){
+ .waiting-room-content .room-seats{grid-template-columns:1fr}
+ .waiting-room-content .room-seat{min-height:76px}
+ .waiting-hero h1{font-size:29px}
+ .waiting-metric strong{font-size:24px}
+ .room-seat .seat-identity{flex-basis:50%}
+ .player .superuser-badge{font-size:9px!important}
+}
