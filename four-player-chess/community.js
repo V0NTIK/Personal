@@ -69,6 +69,7 @@ function createCommunity(store){
   if(accounts.some(x=>!x)||new Set(accounts).size!==4)return {counted:false,reason:"accounts-required"};
   const result=outcomes(room.game.mode,room.game.winner);
   if(!result)return {counted:false,reason:"unsupported-result"};
+  if((room.events||[]).filter(e=>e?.kind==="move").length<8)return {counted:false,reason:"too-short"};
   const ids=accounts.slice().sort(),key=ids.join(":");
   return store.transaction(async query=>{
    const row=await query("INSERT INTO quadra_rated_results(room_id,game_no,players_key,mode,status) VALUES($1,$2,$3,$4,'pending') ON CONFLICT DO NOTHING RETURNING room_id",[room.id,room.gameNo,key,room.game.mode]);
