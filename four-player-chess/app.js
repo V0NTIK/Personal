@@ -261,7 +261,7 @@ function downloadRecord(record,file){
 function currentExport(){
  return {format:"quadra-chess-game",version:1,exportedAt:new Date().toISOString(),
   variant:online?.variant|| (state.mode==="teams"?"quadra-teams":"quadra-ffa"),
-  mode:state.mode,game:state,events:online?.events||null,gameNo:online?.gameNo||null,clock:online?.clockPreset||"untimed"};
+  mode:state.mode,game:state,events:online?.events||null,positions:online?null:[...stack,state],gameNo:online?.gameNo||null,clock:online?.clockPreset||"untimed"};
 }
 function updateRoom(){
  const connected=!!online;
