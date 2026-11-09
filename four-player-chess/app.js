@@ -171,6 +171,13 @@ function initialsMaterial(s,c){
  for(const p of s.b)if(p&&p.c===c){n+=score[p.p];pieces++;}
  return {n,pieces};
 }
+function superuserBadge(){
+ const badge=document.createElement("span");
+ badge.className="superuser-badge";badge.textContent="✦ Superuser";
+ badge.setAttribute("aria-label","Superuser");
+ badge.setAttribute("title","Quadra Chess superuser");
+ return badge;
+}
 function renderPlayers(g){
  playersEl.replaceChildren();
  for(let c=0;c<4;c++){
@@ -180,13 +187,14 @@ function renderPlayers(g){
   const dot=document.createElement("span");dot.className="dot";dot.style.background=playerColors[c];
   name.append(dot,document.createTextNode(names[c]));
   if(online&&!online.spectator&&online.seat===c){const you=document.createElement("span");you.className="you-pill";you.textContent="YOU";name.append(you);}
-  if(online?.seats?.[c]?.role==="superuser"){const badge=document.createElement("span");badge.className="superuser-badge";badge.textContent="✦ SUPERUSER";name.append(badge);}
+  
   const info=document.createElement("small");
   const material=initialsMaterial(g,c);
   const teamName=g.mode==="teams"?" · Team "+(team(c)+1):"";
   const status=online?(online.seats?.[c]?.claimed?(online.seats[c].ready?" · Ready":online.seats[c].online?" · Here":" · Away"):" · Open"):"";
   info.textContent=(online?.seats?.[c]?.alias?"@"+online.seats[c].alias+" · ":"")+(g.alive[c]?material.pieces+" pcs · "+material.n+" pts"+teamName+status:"Eliminated");
   el.append(name,info);
+  if(online?.seats?.[c]?.role==="superuser")el.append(superuserBadge());
   if(online?.hostSeat===c){const host=document.createElement("span");host.className="host-tag";host.textContent="HOST";name.append(host);}
   if(online?.clock?.remaining){const timer=document.createElement("strong");timer.className="clock-time";timer.textContent=formattedTime(liveClockMs(c));el.append(timer);}
   playersEl.append(el);
@@ -382,9 +390,18 @@ function updateRoom(){
   if(!online.spectators?.length){const no=document.createElement("span");no.textContent=(online.spectatorCount||0)>0?"Other viewers are guests.":"No signed-in spectators yet.";audience.append(no);}
   else for(const viewer of online.spectators){
    const line=document.createElement("div");line.className="spectator-entry";line.textContent="@"+viewer.username;
-   if(viewer.role==="superuser"){const badge=document.createElement("span");badge.className="superuser-badge";badge.textContent=" ✦ SUPERUSER";line.append(badge);}
+   if(viewer.role==="superuser")line.append(superuserBadge());
    audience.append(line);
   }
+ $("waitingRoomName").textContent=online.title||"Room "+online.room;
+  $("waitingRoomDescription").textContent=online.spectator?
+   "You're watching the waiting room. The game board opens automatically when the match begins.":
+   "Invite friends, claim your color, and press Ready. The game board opens only when everyone is connected and ready.";
+  $("waitingOccupancy").textContent=online.seats.filter(seat=>seat.claimed).length+" / 4";
+  $("waitingReadyCount").textContent=(online.seatReady||[]).filter(Boolean).length+" / 4";
+  $("waitingAudience").textContent=String(online.spectatorCount||0);
+  $("waitingStatus").textContent=!online.connected?"Connecting to the room…":
+   online.filled?"All four colors claimed · Waiting for Ready confirmations":"Waiting for more players to join";
  const isSpectator=!!online.spectator;
   const isHost=!isSpectator&&online.seat===online.hostSeat;
   $("hostSettings").classList.toggle("hidden",!isHost);
@@ -421,9 +438,15 @@ function updateRoom(){
  for(let c=0;c<4;c++){
   const el=document.createElement("div");el.className="room-seat";
   const dot=document.createElement("span");dot.className="dot";dot.style.background=playerColors[c];
-  const name=document.createElement("span");name.textContent=names[c]+(!isSpectator&&online.seat===c?" (you)":"")+(online.seats[c]?.alias?" · @"+online.seats[c].alias:"")+(online.hostSeat===c?" · HOST":"")+(online.seats[c]?.role==="superuser"?" · ✦ SUPERUSER":"");
-  const status=document.createElement("em");
+  const name=document.createElement("span");name.className="seat-identity";
+  const label=document.createElement("strong");label.className="seat-name";label.textContent=names[c]+(!isSpectator&&online.seat===c?" · You":"");
+  name.append(label);
+  if(online.seats[c]?.alias){const username=document.createElement("small");username.textContent="@"+online.seats[c].alias;name.append(username);}
+  if(online.hostSeat===c){const host=document.createElement("span");host.className="host-tag";host.textContent="HOST";name.append(host);}
+  if(online.seats[c]?.role==="superuser")name.append(superuserBadge());
+  const status=document.createElement("em");status.className="seat-presence";
   status.textContent=online.seats[c]?.ready?"Ready":online.seats[c]?.online?"Here":online.seats[c]?.claimed?"Away":"Open";
+  el.classList.add("seat-"+status.textContent.toLowerCase());
   if(online.seats[c]?.ready)el.classList.add("is-ready");
   el.append(dot,name,status);slots.append(el);
  }
