@@ -7,6 +7,7 @@ const vm=require("node:vm");
 const Engine=require("../engine.js");
 const markup=fs.readFileSync(path.join(__dirname,"../index.html"),"utf8");
 const source=fs.readFileSync(path.join(__dirname,"../app.js"),"utf8");
+const replaySource=fs.readFileSync(path.join(__dirname,"../replay.js"),"utf8");
 const ids=[...markup.matchAll(/\bid="([^"]+)"/g)].map(x=>x[1]);
 class MockElement{
  constructor(){
@@ -51,6 +52,7 @@ function launch({storage=new Map(),url=""}={}){
  const fetch=async(url,options)=>{requests.push({url,options});if(url.endsWith("/api/rooms"))return {ok:true,json:async()=>({room:"ABC1234",seat:0,token:"t".repeat(43),mode:"ffa",revision:0})};return {ok:true,json:async()=>({room:"ABC1234",seat:1,token:"q".repeat(43),mode:"ffa",revision:0})};};
  const context={window,document,localStorage,sessionStorage,navigator,location,URLSearchParams,WebSocket:FakeSocket,fetch,AbortController,
  setTimeout:()=>1,clearTimeout:()=>{},setInterval:()=>{},confirm:()=>true,prompt:()=>{}};
+ vm.runInNewContext(replaySource,context,{filename:"replay.js",timeout:5000});
  vm.runInNewContext(source,context,{filename:"app.js",timeout:5000});
  return {nodes,window,storage,sockets,requests,document,sessionStorage};
 }
@@ -136,4 +138,48 @@ test("online clock selection and authoritative clock snapshot render properly",a
  assert.equal(nodes.roomStorage.textContent,"Temporary memory");
  assert.ok(nodes.players.children[0].children.some(child=>child.className==="clock-time"));
  assert.match(nodes.players.children[0].children.at(-1).textContent,/^15:00$/);
+});
+
+test("online replay supports move-by-move navigation after authenticated sync",async()=>{
+ const {nodes,sockets,window}=launch();
+ nodes.onlineMode.emit("click");
+ await nodes.createRoom.emit("click");
+ const ws=sockets[0];ws.onopen();ws.receive({type:"welcome",seat:0});
+ const seats=Array.from({length:4},(_,i)=>({color:i,claimed:true,online:true}));
+ const game=Engine.fresh("ffa");
+ ws.receive({type:"state",revision:0,ready:true,seats,game,events:[],archives:[],drawVotes:[false,false,false,false]});
+ const m=Engine.legal(game,0)[0];
+ const next=Engine.acceptMove(game,{from:m.from,to:m.to},0);
+ ws.receive({type:"state",revision:1,ready:true,seats,game:next,events:[{kind:"move",player:0,from:m.from,to:m.to}],archives:[],drawVotes:[false,false,false,false]});
+ nodes["tab-moves"].emit("click");
+ assert.equal(nodes.reviewHome.disabled,false);
+ nodes.reviewHome.emit("click");
+ assert.equal(window.QuadraApp.getReviewIndex(),0);
+ assert.equal(nodes.status.textContent,"Reviewing move 0 of 1");
+ nodes.reviewLive.emit("click");
+ assert.equal(window.QuadraApp.getReviewIndex(),null);
+});
+test("authenticated multiplayer resignation and draw voting are wired",async()=>{
+ const {nodes,sockets}=launch();
+ nodes.onlineMode.emit("click");await nodes.createRoom.emit("click");
+ const ws=sockets[0];ws.onopen();ws.receive({type:"welcome",seat:0});
+ const seats=Array.from({length:4},(_,i)=>({color:i,claimed:true,online:true}));
+ ws.receive({type:"state",revision:0,ready:true,seats,game:Engine.fresh("ffa"),events:[],drawVotes:[false,false,false,false]});
+ assert.equal(nodes.matchActions.classList.contains("hidden"),false);
+ nodes.drawVote.emit("click");
+ assert.equal(ws.sent.at(-1).type,"draw-vote");
+ nodes.resignRoom.emit("click");
+ assert.equal(ws.sent.at(-1).type,"resign");
+});
+test("disconnecting a pregame lobby sends a seat release request",async()=>{
+ const {nodes,sockets,sessionStorage}=launch();
+ nodes.onlineMode.emit("click");await nodes.createRoom.emit("click");
+ const ws=sockets[0];ws.onopen();ws.receive({type:"welcome",seat:0});
+ const seats=[{color:0,claimed:true,online:true},...Array.from({length:3},(_,i)=>({color:i+1,claimed:false,online:false}))];
+ ws.receive({type:"state",revision:0,ready:false,seats,game:Engine.fresh("ffa"),events:[]});
+ nodes.leaveRoom.emit("click");
+ assert.equal(ws.sent.at(-1).type,"vacate");
+ ws.receive({type:"vacated"});
+ assert.equal(sessionStorage.getItem("quadra-online"),null);
+ assert.equal(nodes.localMode.attrs["aria-pressed"],"true");
 });
