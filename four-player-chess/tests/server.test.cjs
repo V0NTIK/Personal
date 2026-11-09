@@ -7,7 +7,7 @@ const Engine=require("../engine.js");
 // Integration tests use an isolated in-memory store even when Render provides DATABASE_URL.
 // Never connect test cases to the live database during build or CI.
 delete process.env.DATABASE_URL;
-const {app,shutdown,rooms,expireTurn}=require("../server.js");
+const {app,shutdown,rooms,expireTurn,reclaimLobbySeats,LOBBY_RECLAIM_MS}=require("../server.js");
 function nextMessage(ws,predicate,timeout=5000){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{ws.off("message",onMessage);reject(Error("Timed out waiting for WebSocket message."));},timeout);const onMessage=raw=>{let v;try{v=JSON.parse(raw.toString());}catch(e){return;}if(predicate(v)){clearTimeout(timer);ws.off("message",onMessage);resolve(v);}};ws.on("message",onMessage);});}
 test("private room joins and server-authoritative moves over WebSockets",async()=>{
  await new Promise((resolve,reject)=>app.listen(0,"127.0.0.1",e=>e?reject(e):resolve()));
@@ -82,6 +82,12 @@ test("private room joins and server-authoritative moves over WebSockets",async()
   assert.equal(rooms.get(lobby.json.room).seats[1],null);
   const reclaimed=await post("/api/rooms/"+lobby.json.room+"/join",{});
   assert.equal(reclaimed.json.seat,1);
+  const reclaimRoom=rooms.get(lobby.json.room);
+  reclaimRoom.seats[1].lastSeen=Date.now()-LOBBY_RECLAIM_MS-1000;
+  assert.equal(await reclaimLobbySeats(reclaimRoom,Date.now()),1);
+  assert.equal(reclaimRoom.seats[1],null);
+  assert.equal(reclaimRoom.seats[0]!==null,true);
+  assert.equal(await reclaimLobbySeats(timedRoom,Date.now()+LOBBY_RECLAIM_MS*2),0);
   timedRoom.clock.remaining[0]=1000;
   timedRoom.clock.activeSince=Date.now()-1100;
   assert.equal(await expireTurn(timedRoom,Date.now()),true);
