@@ -26,7 +26,7 @@ class MockElement{
 }
 function launch({storage=new Map(),url=""}={}){
  const nodes={};for(const id of ids)nodes[id]=new MockElement();
- const tabs=["play","moves","settings","rules","account"].map(tab=>{const node=nodes["tab-"+tab];node.dataset.tab=tab;return node;});
+ const tabs=["rooms","play","moves","review","community","settings","rules","account"].map(tab=>{const node=nodes["tab-"+tab];node.dataset.tab=tab;return node;});
  const document={
   getElementById:id=>nodes[id],
   createElement:()=>new MockElement(),
@@ -243,4 +243,52 @@ test("Account tab is accessible without interfering with the playable board",()=
  assert.equal(nodes["tab-account"].attrs["aria-selected"],"true");
  assert.equal(nodes["panel-account"].classList.contains("hidden"),false);
  assert.equal(window.QuadraApp.getState().b.filter(Boolean).length,64);
+});
+
+test("private/public room and provisional-rated settings are submitted at creation",async()=>{
+ const {nodes,requests}=launch();
+ nodes.onlineMode.emit("click");
+ nodes.roomVisibility.value="public";
+ nodes.roomRated.checked=true;
+ await nodes.createRoom.emit("click");
+ const sent=JSON.parse(requests[0].options.body);
+ assert.equal(sent.visibility,"public");
+ assert.equal(sent.rated,true);
+});
+test("spectator link opens a watch-only board and returns to rooms without taking a seat",()=>{
+ const {nodes,sockets,window}=launch({url:"?watch=ABC1234"});
+ assert.equal(sockets.length,1);
+ const ws=sockets[0];ws.onopen();
+ assert.equal(ws.sent[0].type,"watch");
+ assert.equal(ws.sent[0].room,"ABC1234");
+ ws.receive({type:"welcome",room:"ABC1234",spectator:true,seat:null});
+ const seats=Array.from({length:4},(_,i)=>({color:i,claimed:true,online:true,ready:true,alias:null}));
+ const game=Engine.fresh();
+ ws.receive({type:"state",revision:1,ready:true,filled:true,title:"Public test",visibility:"public",rated:false,
+  spectatorCount:1,hostSeat:0,seats,game,messages:[],events:[],archives:[],drawVotes:[false,false,false,false]});
+ assert.equal(nodes.mySeat.textContent,"Spectator");
+ assert.equal(nodes.chatComposer.classList.contains("hidden"),true);
+ assert.equal(nodes.readyControls.classList.contains("hidden"),true);
+ const m=Engine.legal(game,0)[0];
+ square(nodes,m.from).emit("click");
+ square(nodes,m.to).emit("click");
+ assert.equal(ws.sent.some(x=>x.type==="move"),false);
+ nodes.leaveRoom.emit("click");
+ assert.equal(window.QuadraApp.isOnline(),false);
+ assert.equal(nodes["tab-rooms"].attrs["aria-selected"],"true");
+});
+test("room chat history is visible and can be locally hidden without exposing account IDs",async()=>{
+ const {nodes,sockets}=launch();
+ nodes.onlineMode.emit("click");await nodes.createRoom.emit("click");
+ const ws=sockets[0];ws.onopen();ws.receive({type:"welcome",seat:0});
+ const seats=[{color:0,claimed:true,online:true,alias:"host",ready:false},{},{},{}];
+ ws.receive({type:"state",revision:1,ready:false,filled:false,seats,game:Engine.fresh(),events:[],
+  hostSeat:0,visibility:"private",messages:[{id:"abc",alias:"another",text:"Great match!",at:Date.now(),hidden:false}]});
+ assert.equal(nodes.chatList.children.length,1);
+ assert.equal(nodes.chatList.children[0].children[1].textContent,"Great match!");
+ const actions=nodes.chatList.children[0].children[2].children;
+ assert.ok(actions.some(b=>b.textContent==="Hide"));
+ const hide=actions.find(b=>b.textContent==="Hide");
+ hide.emit("click");
+ assert.equal(nodes.chatList.children[0].children[1].textContent,"Hidden on this device");
 });
