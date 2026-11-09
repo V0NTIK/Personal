@@ -71,7 +71,12 @@ function updateTheme(){
  $("autoRotate").checked=!!prefs.follow;
 }
 const PANELS=["rooms","local","create","play","moves","review","community","settings","rules","account","admin"];
-const ROOM_SCREENS=new Set(["waiting","play","moves","review"]);
+const HASH_ROUTES={home:"#/home",rooms:"#/lobby",local:"#/local",create:"#/setup",waiting:"#/waiting",
+ play:"#/match",moves:"#/moves",review:"#/review",community:"#/leaders",settings:"#/settings",rules:"#/rules",account:"#/account",admin:"#/admin"};
+function panelForHash(hash){
+ const route=Object.entries(HASH_ROUTES).find(([,value])=>value===hash);
+ return route?route[0]:null;
+}
 function roomScreen(){return online?(online.ready?"play":"waiting"):"create";}
 function switchPanel(requested,scroll=false){
  let name=requested==="room"?roomScreen():requested;
@@ -83,6 +88,7 @@ function switchPanel(requested,scroll=false){
  if(name!=="home"&&name!=="waiting"&&!PANELS.includes(name))return;
  if(name==="admin"&&window.QuadraAccount?.role?.()!=="superuser"){tell("Superuser sign-in required.");return;}
  activePanel=name;
+ if(typeof location.hash==="string"&&HASH_ROUTES[name]&&location.hash!==HASH_ROUTES[name])location.hash=HASH_ROUTES[name];
  const isHome=name==="home",isWaiting=name==="waiting",isMatch=["play","moves","review"].includes(name)&&!!online;
  const boardVisible=name==="local"||["play","moves","review"].includes(name);
  $("homeScreen").classList.toggle("hidden",!isHome);
@@ -703,6 +709,11 @@ function bind(){
  $("headerHelp").addEventListener("click",()=>switchPanel("rules",true));
  $("headerSettings").addEventListener("click",()=>switchPanel("settings",true));
  for(const [id,page] of [["navGame","play"],["navMoves","moves"],["navReview","review"]])$(id).addEventListener("click",()=>switchPanel(page,true));
+ window.addEventListener("hashchange",()=>{
+  if(typeof location.hash!=="string")return;
+  const destination=panelForHash(location.hash);
+  if(destination&&destination!==activePanel)switchPanel(destination);
+ });
  $("headerHome").addEventListener("click",()=>switchPanel("home",true));
  $("headerRooms").addEventListener("click",()=>switchPanel("rooms",true));
  $("headerPlay").addEventListener("click",()=>switchPanel("local",true));
@@ -823,10 +834,7 @@ function bind(){
 function init(){
  try{const old=JSON.parse(localStorage.getItem(PREFS_KEY)||"null");if(old&&typeof old==="object")prefs={...initialPrefs,...old};}catch(e){}
  const resumed=restoreAuto();updateTheme();bind();
- const initial=(typeof location.hash==="string"&&({
-  "#/home":"home","#/":"home","#/lobby":"rooms","#/local":"local","#/setup":"create",
-  "#/leaders":"community","#/rules":"rules","#/settings":"settings","#/account":"account"
- })[location.hash])||"home";
+ const initial=(typeof location.hash==="string"?panelForHash(location.hash):null)||"home";
  switchPanel(initial);
  if(resumed&&prefs.follow)orientation=state.turn;
  const invited=new URLSearchParams(location.search).get("room");
