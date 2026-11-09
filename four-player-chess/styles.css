@@ -152,3 +152,10 @@ p{line-height:1.65;color:var(--soft)}
 @media(max-width:940px){.layout{grid-template-columns:1fr;max-width:780px;margin:auto}.sidebar{position:static}.tab-panel{min-height:unset}.arena-shell{padding:15px}.board-outer{max-width:690px}.site-header{height:66px}.header-actions .text-link{display:none}}
 @media(max-width:540px){.app{padding:0 12px 28px}.site-header{height:62px}.brand-mark{width:31px;height:31px}.wordmark{font-size:15px}.brand-caption{font-size:8px}.beta{padding:6px 8px;font-size:9px}.layout{padding-top:18px;gap:14px}.arena-titlebar{margin-bottom:14px}.arena-icon{display:none}.arena-shell{padding:9px;border-radius:13px}.players{gap:4px;margin-bottom:10px}.player{padding:7px 4px;border-radius:7px}.player .pname{font-size:10px;gap:4px}.player .dot{width:6px;height:6px}.player small{font-size:8px;margin-top:3px}.player .you-pill{display:none}.status-bar{padding:1px 4px}.status-text{font-size:12px}.status-meta{font-size:10px}.board{border-width:2px;border-radius:5px}.piece{font-size:clamp(11px,4.7cqw,25px);-webkit-text-stroke:.6px #14222d}.coords{display:none}.board-footer{padding:0 2px}.board-hint{font-size:10px}.lower-info{font-size:9px;padding:11px 3px 0}.tab-panel{padding:20px 17px}.tabs{gap:1px}.tab{font-size:11px;padding:11px 2px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
+
+/* v0.4 — chess clocks */
+.clock-time{display:block;font-family:Manrope,system-ui,sans-serif;font-size:17px;letter-spacing:-.4px;font-weight:800;color:#dce9ed;margin-top:9px;font-variant-numeric:tabular-nums}
+.player.active .clock-time{color:#a9ecca}
+.player.clock-critical .clock-time{color:#ff9292}
+.player.clock-flagged .clock-time{color:#ff7777;text-decoration:line-through}
+@media(max-width:540px){.clock-time{font-size:12px;margin-top:5px}}
