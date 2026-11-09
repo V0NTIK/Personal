@@ -444,3 +444,11 @@ body[data-screen="rooms"] #panel-rooms>.room-help{font-size:13px}
  .room-seat .seat-identity{flex-basis:50%}
  .player .superuser-badge{font-size:9px!important}
 }
+
+/* Keep administrator labels legible in narrow cards and rankings. */
+.leader-entry{grid-template-columns:25px minmax(0,1fr) auto}
+.leader-entry>div{min-width:0;overflow-wrap:anywhere}
+.leader-entry>div>strong{display:flex;flex-wrap:wrap;align-items:center;gap:5px;min-width:0;overflow-wrap:anywhere}
+.leader-entry .superuser-badge{margin:0}
+.spectator-entry{display:inline-flex;align-items:center;flex-wrap:wrap;gap:5px;overflow-wrap:anywhere}
+.spectator-entry .superuser-badge{margin:0}
