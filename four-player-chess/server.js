@@ -78,10 +78,10 @@ function lockRoom(r,fn){
  return job;
 }
 async function commitRoom(r,next){
+ const newlyFinished=!r.game?.winner&&!!next.game?.winner;
  await store.save(next);
  r.rev=next.rev;r.game=next.game;r.variant=next.variant;r.seats=next.seats;r.clock=next.clock;
  r.rematch=next.rematch;r.drawVotes=next.drawVotes;r.events=next.events;r.archives=next.archives;r.gameNo=next.gameNo;
- const newlyFinished=!r.game?.winner&&!!next.game?.winner;
  r.started=next.started;r.seatReady=next.seatReady;r.title=next.title;r.updated=next.updated;
  r.visibility=next.visibility;r.rated=next.rated;r.hostSeat=next.hostSeat;r.spectatorHash=next.spectatorHash;
  r.messages=next.messages;r.reports=next.reports;r.mutedUsers=next.mutedUsers;
@@ -136,7 +136,7 @@ async function joinRoom(roomId,options={}){
   if(seat<0||r.seats[seat])throw Object.assign(Error(chosen===null?"All four seats are taken.":"That color is already claimed."),{code:409});
   const secret=token(),t=now(),seats=r.seats.slice();
   seats[seat]=sealedSeat(secret,null,options.account);
-  await commitRoom(r,{...r,seats,seatReady:r.seatReady.slice(),updated:t});
+  await commitRoom(r,{...r,seats,hostSeat:r.seats.every(x=>!x)?seat:r.hostSeat,seatReady:r.seatReady.slice(),updated:t});
   return {room:roomId,seat,token:secret,revision:r.rev,mode:r.game.mode,variant:r.variant,clock:r.clock.preset,
   clockSettings:{preset:r.clock.preset,initialMs:r.clock.initialMs,incrementMs:r.clock.incrementMs},persistent:store.persistent,title:r.title,visibility:r.visibility,rated:r.rated};
  });
