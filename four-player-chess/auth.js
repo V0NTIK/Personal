@@ -84,9 +84,10 @@ function createAuth(store){
   requireDb();
   const handle=handleOf(input?.username),password=passwordOf(input?.newPassword),recoveryCode=input?.recoveryCode;
   if(typeof recoveryCode!=="string"||!TOKEN_RE.test(recoveryCode))throw Object.assign(Error("Invalid recovery information."),{code:401});
-  const result=await store.query("SELECT id,recovery_hash FROM quadra_accounts WHERE handle=$1",[handle]);
+  const result=await store.query("SELECT id,recovery_hash,banned_at FROM quadra_accounts WHERE handle=$1",[handle]);
   const user=result.rows[0];
   if(!user||!safeEqual(digest(recoveryCode),user.recovery_hash))throw Object.assign(Error("Invalid recovery information."),{code:401});
+   if(user.banned_at)throw Object.assign(Error("This account is suspended."),{code:403});
   const salt=crypto.randomBytes(16).toString("hex"),hash=await hashPassword(password,salt),nextRecovery=code();
   await store.query("UPDATE quadra_accounts SET pass_salt=$1,pass_hash=$2,recovery_hash=$3 WHERE id=$4",[salt,hash,digest(nextRecovery),user.id]);
   await store.query("DELETE FROM quadra_sessions WHERE user_id=$1",[user.id]);
