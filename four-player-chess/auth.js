@@ -113,7 +113,7 @@ function createAuth(store){
    requireDb();
    const r=await store.query(`SELECT a.id,a.handle,a.role,a.created_at,a.banned_at,
     EXISTS(SELECT 1 FROM quadra_sessions s WHERE s.user_id=a.id AND s.expires_at>now()) AS active_session
-    FROM quadra_accounts a ORDER BY a.created_at DESC LIMIT 200`);
+    FROM quadra_accounts a ORDER BY a.created_at DESC`);
    return r.rows.map(a=>({id:a.id,username:a.handle,role:a.role,banned:!!a.banned_at,createdAt:a.created_at,activeSession:!!a.active_session}));
   }
   async function setBan(actor,targetId,banned){
