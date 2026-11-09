@@ -67,9 +67,9 @@ function updateTheme(){
  $("autoRotate").checked=!!prefs.follow;
 }
 function switchPanel(name,scroll){
- if(!["play","moves","settings","rules"].includes(name))return;
+ if(!["play","moves","settings","rules","account"].includes(name))return;
  activePanel=name;
- for(const id of ["play","moves","settings","rules"]){
+ for(const id of ["play","moves","settings","rules","account"]){
   const active=id===name;
   $("panel-"+id).classList.toggle("hidden",!active);
   $("tab-"+id).setAttribute("aria-selected",String(active));
@@ -88,7 +88,18 @@ function switchLocation(name){
  $("onlineControls").classList.toggle("hidden",name!=="online");
  updateRoom();
 }
-const CLOCK_NAMES={untimed:"Unlimited",blitz5:"5 min",rapid10:"10 min",rapid15:"15 min + 10 sec",classical30:"30 min"};
+const CLOCK_NAMES={untimed:"Unlimited",bullet1:"1 min",bullet1inc:"1 | 1",bullet2inc:"2 | 1",
+ blitz3:"3 min",blitz3inc:"3 | 2",blitz5:"5 min",blitz5inc:"5 | 5",rapid10:"10 min",rapid10inc:"10 | 5",
+ rapid15:"15 | 10",classical30:"30 min",custom:"Custom"};
+function clockLabel(session){
+ if(!session)return "Unlimited";
+ if(session.clockPreset==="custom"){
+  const base=session.clockSettings?.initialMs??session.clock?.initialMs;
+  const increment=session.clockSettings?.incrementMs??session.clock?.incrementMs;
+  return Number.isFinite(base)?Math.round(base/60000)+" | "+Math.round((increment||0)/1000):"Custom";
+ }
+ return CLOCK_NAMES[session.clockPreset]||"Unlimited";
+}
 function formattedTime(ms){
  const sec=Math.ceil(Math.max(0,ms)/1000);
  const minutes=Math.floor(sec/60);
@@ -191,19 +202,19 @@ function renderStatus(g){
  let primary="";
  if(viewing)primary="Reviewing move "+reviewIndex+" of "+reviewLength();
  else if(online&&!online.connected)primary="Connecting to game…";
- else if(online&&!online.ready)primary="Waiting for players";
+ else if(online&&!online.ready)primary=online.filled?"Waiting for everyone to get ready":"Waiting for players";
  else if(g.winner)primary=g.winner;
  else primary=names[g.turn]+" to move"+(check?" · Check":"");
  $("status").textContent=primary;
  const format=g.mode==="teams"?"Teams":"Free-for-all";
- $("statusSecondary").textContent=(online?"Online room "+online.room:"Local game")+" · "+format+(online?" · "+(CLOCK_NAMES[online.clockPreset]||"Unlimited"):"")+(viewing?" · Replay":"");
+ $("statusSecondary").textContent=(online?"Online room "+online.room:"Local game")+" · "+format+(online?" · "+clockLabel(online):"")+(viewing?" · Replay":"");
  $("currentRound").textContent="ROUND "+g.round;
  $("statusDot").className="status-dot"+(g.winner?" is-finished":online&&(!online.connected||!online.ready)?" is-waiting":"");
  let hint="Select a piece, then a highlighted square.";
  if(viewing)hint="Viewing an earlier position. Return to live to make moves.";
  else if(g.winner)hint="Game over. Open Moves to review the game.";
  else if(online&&!online.connected)hint="Reconnecting. Moves will resume when your connection returns.";
- else if(online&&!online.ready)hint="Invite friends until all four seats are filled.";
+ else if(online&&!online.ready)hint=online.filled?"All four players must press Ready to start.":"Invite friends to claim the remaining seats.";
  else if(online&&g.turn!==online.seat)hint="It's "+names[g.turn]+"'s turn. You're playing "+names[online.seat]+".";
  else if(selected>=0)hint=targets.length?targets.length+" legal destinations. Choose one.":"This piece has no legal moves. Try another.";
  $("boardHint").textContent=hint;
@@ -283,7 +294,14 @@ function updateRoom(){
  $("resumeRoom").classList.toggle("hidden",connected||!sessionCredentials());
  if(!connected)return;
  $("roomId").textContent=online.room;
- $("roomClockName").textContent=CLOCK_NAMES[online.clockPreset]||"Unlimited";
+ $("roomDisplayTitle").textContent=online.title||"Casual private match";
+ $("readyControls").classList.toggle("hidden",online.ready);
+ const readyCount=(online.seatReady||[]).filter(Boolean).length;
+ $("readyStatus").textContent=online.ready?"Match started":readyCount+" of 4 ready · "+(online.filled?"Waiting for confirmation":"Waiting for remaining seats");
+ $("readyButton").disabled=!online.connected||!online.seats[online.seat]?.claimed;
+ $("readyButton").textContent=online.seatReady?.[online.seat]?"Cancel ready":"I’m ready";
+
+ $("roomClockName").textContent=clockLabel(online);
  $("roomStorage").textContent=online.persistent?"Database · beta":"Temporary memory";
  $("storageNotice").textContent=online.persistent?"Beta database storage is enabled. This free database expires December 9, 2026; export important games.":"This server currently stores rooms in memory. Games may disappear when it restarts.";
  $("rematchControls").classList.toggle("hidden",!state.winner);
@@ -300,9 +318,10 @@ function updateRoom(){
  for(let c=0;c<4;c++){
   const el=document.createElement("div");el.className="room-seat";
   const dot=document.createElement("span");dot.className="dot";dot.style.background=playerColors[c];
-  const name=document.createElement("span");name.textContent=names[c]+(online.seat===c?" (you)":"");
+  const name=document.createElement("span");name.textContent=names[c]+(online.seat===c?" (you)":"")+(online.seats[c]?.alias?" · @"+online.seats[c].alias:"");
   const status=document.createElement("em");
-  status.textContent=online.seats[c]?.online?"Here":online.seats[c]?.claimed?"Away":"Open";
+  status.textContent=online.seats[c]?.ready?"Ready":online.seats[c]?.online?"Here":online.seats[c]?.claimed?"Away":"Open";
+  if(online.seats[c]?.ready)el.classList.add("is-ready");
   el.append(dot,name,status);slots.append(el);
  }
 }
@@ -394,14 +413,14 @@ function exportRecord(){
 function sessionCredentials(){
  try{
   const v=JSON.parse(sessionStorage.getItem(ROOM_KEY)||"null");
-  return v&&typeof v.room==="string"&&/^[A-F0-9]{7}$/.test(v.room)&&Number.isInteger(v.seat)&&v.seat>=0&&v.seat<4&&typeof v.token==="string"&&v.token.length>=32?v:null;
+  return v&&typeof v.room==="string"&&/^[A-F0-9]{7}$/.test(v.room)&&Number.isInteger(v.seat)&&v.seat>=0&&v.seat<4&&((typeof v.token==="string"&&v.token.length>=32)||(v.token===null&&!!window.QuadraAccount?.token()))?v:null;
  }catch(e){return null;}
 }
 function connectRoom(data){
  if(online)return;
  saveAuto();
  backup={state:clone(state),stack:stack.map(clone),orientation};
- const s={room:data.room,seat:data.seat,token:data.token,ws:null,rev:0,ready:false,connected:false,awaiting:false,rematch:[false,false,false,false],drawVotes:[false,false,false,false],events:null,replayStates:null,archives:[],gameNo:1,seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
+ const s={room:data.room,seat:data.seat,token:data.token||null,ws:null,rev:0,ready:false,filled:false,seatReady:[false,false,false,false],title:data.title||"",clockSettings:data.clockSettings||null,connected:false,awaiting:false,rematch:[false,false,false,false],drawVotes:[false,false,false,false],events:null,replayStates:null,archives:[],gameNo:1,seats:[{},{},{},{}],attempts:0,closed:false,clock:null,clockReceivedAt:Date.now(),clockPreset:data.clock||"untimed",persistent:!!data.persistent,variant:data.variant||null};
  online=s;playLocation="online";reviewIndex=null;selected=-1;targets=[];pending=null;orientation=s.seat;
  try{sessionStorage.setItem(ROOM_KEY,JSON.stringify({room:s.room,seat:s.seat,token:s.token}));}catch(e){}
  switchLocation("online");switchPanel("play");render();
@@ -411,7 +430,7 @@ function connectRoom(data){
   let ws;
   try{ws=new WebSocket(API.replace(/^http/,"ws")+"/ws");}catch(e){onlineMessage("Unable to start the connection.");return;}
   s.ws=ws;
-  ws.onopen=()=>{if(online===s)ws.send(JSON.stringify({type:"hello",room:s.room,seat:s.seat,token:s.token}));};
+  ws.onopen=()=>{if(online===s)ws.send(JSON.stringify({type:"hello",room:s.room,seat:s.seat,token:s.token,session:window.QuadraAccount?.token()||null}));};
   ws.onmessage=event=>{
    if(online!==s)return;let msg;try{msg=JSON.parse(event.data);}catch(e){return;}
    if(msg.type==="welcome"){s.connected=true;s.attempts=0;onlineMessage("Connected as "+names[s.seat]+".");render();return;}
@@ -424,13 +443,13 @@ function connectRoom(data){
       "quadra-"+s.room+"-game-"+a.gameNo+".json");return;
    }
    if(msg.type==="state"){
-    s.rev=msg.revision;s.seats=msg.seats||s.seats;s.rematch=msg.rematch||s.rematch;s.drawVotes=msg.drawVotes||s.drawVotes;
-    s.archives=msg.archives||[];s.gameNo=msg.gameNo||1;s.events=msg.events;s.ready=!!msg.ready;s.awaiting=false;s.clock=msg.clock||null;s.clockReceivedAt=Date.now();s.persistent=!!msg.persistent;s.variant=msg.variant||s.variant; if(s.clock)s.clockPreset=s.clock.preset;
+    s.rev=msg.revision;s.seats=msg.seats||s.seats;s.seatReady=msg.seatReady||s.seatReady;s.filled=!!msg.filled;s.title=msg.title||s.title;s.rematch=msg.rematch||s.rematch;s.drawVotes=msg.drawVotes||s.drawVotes;
+    s.archives=msg.archives||[];s.gameNo=msg.gameNo||1;s.events=msg.events;s.ready=!!msg.ready;s.awaiting=false;s.clock=msg.clock||null;s.clockSettings=msg.clock||s.clockSettings;s.clockReceivedAt=Date.now();s.persistent=!!msg.persistent;s.variant=msg.variant||s.variant; if(s.clock)s.clockPreset=s.clock.preset;
     if(safeState(msg.game))state=msg.game;
     const positions=window.QuadraReplay?.replay(s.events,state.mode,E);
     s.replayStates=positions&&positions.length===state.moves.length+1?positions:null;
     reviewIndex=null;selected=-1;targets=[];render();
-    onlineMessage(s.ready?"Ready · "+s.seats.filter(v=>v.online).length+" players connected":"Lobby · "+s.seats.filter(v=>v.claimed).length+" of 4 seats claimed");
+    onlineMessage(s.ready?"Game started · "+s.seats.filter(v=>v.online).length+" online":"Lobby · "+s.seats.filter(v=>v.claimed).length+"/4 seats · "+s.seatReady.filter(Boolean)+"/4 ready");
     return;
    }
   };
@@ -448,7 +467,9 @@ async function roomRequest(path,payload){
  const controller=new AbortController();
  const timeout=setTimeout(()=>controller.abort(),90000);
  try{
-  const response=await fetch(API+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),signal:controller.signal});
+  const token=window.QuadraAccount?.token();
+  const headers={"Content-Type":"application/json"};if(token)headers.Authorization="Bearer "+token;
+  const response=await fetch(API+path,{method:"POST",headers,body:JSON.stringify(payload),signal:controller.signal});
   const data=await response.json();
   if(!response.ok)throw Error(data.error||"Room request failed.");
   return data;
@@ -461,7 +482,16 @@ async function enterRoom(which){
  try{
   const room=$("roomInput").value.trim().toUpperCase();
   if(which==="join"&&!/^[A-F0-9]{7}$/.test(room))throw Error("Enter a valid seven-character room code.");
-  const data=which==="create"?await roomRequest("/api/rooms",{mode:$("onlineFormat").value,clock:$("onlineClock").value}):await roomRequest("/api/rooms/"+room+"/join",{});
+  const preference=$("preferredSeat").value;
+  const seat=preference===""?null:Number(preference);
+  let clock=$("onlineClock").value;
+  if(clock==="custom"){
+   const minutes=Number($("customMinutes").value),incrementSeconds=Number($("customIncrement").value);
+   if(!Number.isInteger(minutes)||minutes<1||minutes>180||!Number.isInteger(incrementSeconds)||incrementSeconds<0||incrementSeconds>60)throw Error("Custom time: 1–180 minutes and 0–60 seconds per move.");
+   clock={type:"custom",minutes,incrementSeconds};
+  }
+  const data=which==="create"?await roomRequest("/api/rooms",{mode:$("onlineFormat").value,clock,seat,
+   title:$("roomTitleInput").value.trim()}):await roomRequest("/api/rooms/"+room+"/join",{seat});
   connectRoom(data);tell("Private room joined.");
  }catch(e){onlineMessage(e.name==="AbortError"?"Server did not respond. Please try again.":"Unable to join: "+e.message);}
  finally{button.disabled=!!online;}
@@ -491,6 +521,8 @@ function copyInvite(){
 function bind(){
  for(const button of document.querySelectorAll("[data-tab]"))button.addEventListener("click",()=>switchPanel(button.dataset.tab,false));
  $("headerHelp").addEventListener("click",()=>switchPanel("rules",true));
+ $("headerAccount").addEventListener("click",()=>switchPanel("account",true));
+ $("onlineClock").addEventListener("change",e=>$("customTimeFields").classList.toggle("hidden",e.target.value!=="custom"));
  $("localMode").addEventListener("click",()=>switchLocation("local"));
  $("onlineMode").addEventListener("click",()=>switchLocation("online"));
  $("new").addEventListener("click",()=>newGame($("mode").value));
@@ -531,6 +563,8 @@ function bind(){
  $("cancelpromo").addEventListener("click",()=>{pending=null;promotionEl.classList.add("hidden");});
  $("createRoom").addEventListener("click",()=>enterRoom("create"));
  $("joinRoom").addEventListener("click",()=>enterRoom("join"));
+ $("readyButton").addEventListener("click",()=>{if(!online?.connected||online.ready)return;
+  const type=online.seatReady?.[online.seat]?"unready":"ready";online.ws.send(JSON.stringify({type}));onlineMessage(type==="ready"?"Ready confirmation submitted.":"Ready confirmation cancelled.");});
  $("roomInput").addEventListener("input",e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-F0-9]/g,"").slice(0,7);});
  $("copyInvite").addEventListener("click",copyInvite);
  $("rematchRoom").addEventListener("click",()=>{if(!online||!online.connected||!state.winner||online.rematch?.[online.seat])return;online.ws.send(JSON.stringify({type:"rematch"}));tell("Rematch vote sent.");});
@@ -565,6 +599,6 @@ function init(){
  if(resumed&&state.moves.length)tell("Your local game was restored.");
 }
 init();
-window.QuadraApp={getState:()=>state,getReviewIndex:()=>reviewIndex,changePanel:switchPanel};
+window.QuadraApp={getState:()=>state,getReviewIndex:()=>reviewIndex,changePanel:switchPanel,openRoom:connectRoom};
 window.QuadraEngine={fresh,legal,acceptMove,finish,threatened,isCheck,valid,rotate};
 })();
