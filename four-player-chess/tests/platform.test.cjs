@@ -97,3 +97,38 @@ test("memory store remains usable when no durable DATABASE_URL is configured",as
  assert.deepEqual(await store.load(),[]);
  await store.close();
 });
+
+test("persistent adapter saves and restores rooms across separate process instances",async()=>{
+ const table=new Map();
+ class MockPool{
+  async query(sql,params=[]){
+   if(sql.startsWith("CREATE "))return {rowCount:0};
+   if(sql.startsWith("INSERT ")){
+    const [id,revision,json,updated,expires]=params,previous=table.get(id);
+    if(previous&&previous.revision>revision)return {rowCount:0};
+    table.set(id,{revision,data:JSON.parse(json),updated,expires});
+    return {rowCount:1};
+   }
+   if(sql.startsWith("SELECT "))return {rows:[...table.values()].map(v=>({data:v.data}))};
+   if(sql.startsWith("DELETE "))return {rowCount:1};
+   throw Error("Unexpected SQL: "+sql);
+  }
+  async end(){}
+ }
+ const room={id:"D3A4567",rev:1,variant:"quadra-ffa",game:Engine.fresh(),
+  seats:[{tokenHash:"b".repeat(64),ws:{privateData:"must not be saved"}},null,null,null],
+  clock:Clock.create("blitz5"),rematch:[false,false,false,false],created:Date.now(),updated:Date.now()};
+ const s1=createStore("postgres://example.invalid/test",{Pool:MockPool});
+ await s1.init();assert.equal(s1.persistent,true);await s1.save(room);await s1.close();
+ const text=JSON.stringify(table.get(room.id).data);
+ assert.equal(text.includes("must not be saved"),false);
+ const s2=createStore("postgres://example.invalid/test",{Pool:MockPool});
+ await s2.init();const loaded=await s2.load();await s2.close();
+ assert.equal(loaded.length,1);
+ assert.equal(loaded[0].id,room.id);
+ assert.equal(loaded[0].rev,1);
+ assert.equal(loaded[0].seats[0].tokenHash,room.seats[0].tokenHash);
+ assert.equal(loaded[0].seats[0].ws,null);
+ assert.equal(loaded[0].clock.preset,"blitz5");
+ assert.equal(loaded[0].game.b.filter(Boolean).length,64);
+});
