@@ -4,13 +4,16 @@ const ROOM_TTL=29*DAY;
 function serialize(room){
  return {id:room.id,revision:room.rev,game:room.game,variant:room.variant,
   seats:room.seats.map(s=>s?{tokenHash:s.tokenHash}:null),
-  clock:room.clock,rematch:room.rematch,created:room.created,updated:room.updated};
+  clock:room.clock,rematch:room.rematch,drawVotes:room.drawVotes,events:room.events,archives:room.archives,gameNo:room.gameNo,created:room.created,updated:room.updated};
 }
 function deserialize(data){
  if(!data||typeof data.id!=="string"||!/^[A-F0-9]{7}$/.test(data.id)||!data.game||!Array.isArray(data.seats)||data.seats.length!==4||!Number.isInteger(data.revision))throw Error("Invalid stored room.");
  return {id:data.id,rev:data.revision,game:data.game,variant:data.variant||null,
   seats:data.seats.map(s=>s?{tokenHash:s.tokenHash,ws:null}:null),
   clock:data.clock||null,rematch:Array.isArray(data.rematch)&&data.rematch.length===4?data.rematch:[false,false,false,false],
+  drawVotes:Array.isArray(data.drawVotes)&&data.drawVotes.length===4?data.drawVotes:[false,false,false,false],
+  events:Array.isArray(data.events)?data.events:(data.game.moves?.length?null:[]),
+  archives:Array.isArray(data.archives)?data.archives.slice(-8):[],gameNo:Number.isInteger(data.gameNo)&&data.gameNo>0?data.gameNo:1,
   created:Number(data.created)||Date.now(),updated:Number(data.updated)||Date.now(),lock:Promise.resolve()};
 }
 function createStore(url=process.env.DATABASE_URL,options={}){
