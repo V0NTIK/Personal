@@ -166,7 +166,7 @@ async function authentic(ws,msg){
  if(!allowed)return false;
  const verified=typeof msg.session==="string"?await auth.verify(msg.session):null;
  // An account seat requires a valid unbanned login in addition to its seat token.
- if(seat.userId&&verified?.id!==seat.userId)return false;
+ if(seat.userId&&auth.enabled&&verified?.id!==seat.userId)return false;
  if(seat.ws&&seat.ws!==ws&&seat.ws.readyState===WebSocket.OPEN)seat.ws.close(4001,"Connected from another browser");
  seat.ws=ws;seat.lastSeen=now();ws.room=r;ws.seat=msg.seat;ws.spectator=false;
  ws.sessionUser=verified;
