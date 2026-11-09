@@ -56,7 +56,11 @@ function launch({storage=new Map(),url=""}={}){
   close(){this.readyState=3;}
   receive(value){this.onmessage?.({data:JSON.stringify(value)});}
  }
- const window={QuadraCore:Engine,matchMedia:()=>({matches:false}),addEventListener(){}};
+ const windowEvents={};
+ const window={QuadraCore:Engine,matchMedia:()=>({matches:false}),
+  addEventListener(name,fn){windowEvents[name]=fn;},
+  fire(name){return windowEvents[name]?.();}
+ };
  const navigator={clipboard:{writeText:async()=>{}}};
  const location={origin:"https://quadra-chess.onrender.com",pathname:"/",search:url,hash:"#/home"};
  const requests=[];
@@ -65,7 +69,7 @@ function launch({storage=new Map(),url=""}={}){
  setTimeout:()=>1,clearTimeout:()=>{},setInterval:()=>{},confirm:()=>true,prompt:()=>{}};
  vm.runInNewContext(replaySource,context,{filename:"replay.js",timeout:5000});
  vm.runInNewContext(source,context,{filename:"app.js",timeout:5000});
- return {nodes,window,storage,sockets,requests,document,sessionStorage};
+ return {nodes,window,storage,sockets,requests,document,sessionStorage,location};
 }
 function square(nodes,index){return nodes.board.children.find(c=>c.dataset.square===String(index));}
 test("all required IDs exist uniquely and board renders 196 cells and four player cards",()=>{
@@ -366,3 +370,17 @@ test("pregame room and active match use separate UI states and transition on aut
  assert.equal(nodes.arena.classList.contains("hidden"),true);
 });
 
+
+test("separate page URLs track navigation and browser-back routes",()=>{
+ const {nodes,window,location}=launch();
+ nodes.headerCreate.emit("click");
+ assert.equal(location.hash,"#/setup");
+ assert.equal(nodes["panel-create"].classList.contains("hidden"),false);
+ nodes.headerPlay.emit("click");
+ assert.equal(location.hash,"#/local");
+ assert.equal(nodes["panel-local"].classList.contains("hidden"),false);
+ location.hash="#/lobby";window.fire("hashchange");
+ assert.equal(nodes["panel-rooms"].classList.contains("hidden"),false);
+ location.hash="#/home";window.fire("hashchange");
+ assert.equal(nodes.homeScreen.classList.contains("hidden"),false);
+});
