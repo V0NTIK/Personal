@@ -2,9 +2,26 @@
 
 **Playable website:** https://quadra-chess.onrender.com  
 **API health:** https://quadra-chess-api.onrender.com/health  
-**Current release:** 0.5 — match reliability, replay, and game records
+**Current release:** 0.6 — custom game setup, readiness and private accounts
 
 A mobile-friendly four-player chess beta with local pass-and-play and private online rooms. The platform uses GitHub, a free Render static site, a free Render Node.js API, and a free Render PostgreSQL database. There is currently no public matchmaking, paid subscription, advertising, or account requirement.
+
+## Version 0.6 — Custom challenges and optional accounts
+
+This release adapts useful chess game-creation features while staying independent of Chess.com:
+
+- **Free, optional accounts:** pseudonymous username and password (minimum 12 characters); scrypt password hashes with a random salt. No email, real name, location, payment details or profile photo is required.
+- **Recovery and deletion:** a one-time 256-bit recovery code is shown on registration and rotated after recovery. Sessions can be revoked, and accounts can be deleted with password confirmation.
+- **Linked private rooms:** account-linked seats appear under Account → My private rooms; sign in from another device to reopen your seat. Guest play and existing seat-token reconnect remain available.
+- **Game setup:** optional room name, requested seat color, bullet/blitz/rapid presets, and custom time controls from 1–180 minutes and 0–60 seconds increment.
+- **Player readiness:** games do not start merely when a fourth seat is claimed. All four players must be online and explicitly confirm Ready before the match and clocks begin.
+- **Casual-only beta:** all games remain unrated, invite-only and private. No public matchmaking, ratings, chat or player search.
+- **Privacy:** player usernames are visible only to participants in the same room, not published in a public directory. Browser sessions do not store passwords; the database stores hashes, not raw session tokens.
+- **Compatibility:** previously saved rooms keep their legacy started state when loaded.
+
+**Storage warning:** Render's existing free PostgreSQL database expires **December 9, 2026**. Accounts, sessions and game data may disappear then. Treat accounts as beta identities, not permanent accounts, until migrated to long-lived storage.
+
+**Chess.com:** Quadra is independently built and **not affiliated with or endorsed by Chess.com**. Its published-data API is read-only; Chess.com OAuth/login requires a separate official developer application and is not included.
 
 ## Version 0.5 features
 
@@ -50,6 +67,8 @@ four-player-chess/
   viewer.js         offline replay and record navigation
   clock.js          server chess clocks and time presets
   store.js          Postgres-backed room snapshot storage
+  auth.js           account authentication, recovery and sessions
+  account-client.js signup, sign-in and linked private rooms
   server.js         HTTP and WebSocket multiplayer API
   tests/            engine, platform, server, UI and replay tests
   PERSISTENCE.md    operational database notes
