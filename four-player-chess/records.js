@@ -22,7 +22,7 @@ function decode(input,engine,replayer){
  }
  let limited=false;
  if(!positions&&Array.isArray(data.positions)&&data.positions.length>0&&data.positions.length<=2001){
-  if(data.positions.every(p=>isGame(p)&&p.mode===data.mode))positions=data.positions;
+  if(data.positions.every(p=>isGame(p)&&p.mode===data.mode)&&(!data.game||!isGame(data.game)||data.positions.length===data.game.moves.length+1))positions=data.positions;
  }
  if(!positions){
   if(!isGame(data.game))throw Error("No valid board position or complete replay history in this file.");
