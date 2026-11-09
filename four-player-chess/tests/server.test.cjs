@@ -94,7 +94,7 @@ test("private room joins and server-authoritative moves over WebSockets",async()
   assert.equal(await reclaimLobbySeats(reclaimRoom,Date.now()),1);
   assert.equal(reclaimRoom.seats[1],null);
   assert.equal(reclaimRoom.seats[0]!==null,true);
-  assert.equal(await reclaimLobbySeats(timedRoom,Date.now()+LOBBY_RECLAIM_MS*2),0);
+  assert.equal(await reclaimLobbySeats(timedRoom,Date.now()),0);
   const timedSockets=[];
   for(const player of timedPlayers){
    const ws=new WebSocket("ws://127.0.0.1:"+port+"/ws");clients.push(ws);timedSockets.push(ws);await once(ws,"open");
@@ -106,6 +106,7 @@ test("private room joins and server-authoritative moves over WebSockets",async()
   for(const ws of timedSockets)ws.send(JSON.stringify({type:"ready"}));
   await clockStart;
   assert.equal(timedRoom.clock.started,true);
+  assert.equal(await reclaimLobbySeats(timedRoom,Date.now()+LOBBY_RECLAIM_MS*2),0);
   timedRoom.clock.remaining[0]=1000;
   timedRoom.clock.activeSince=Date.now()-1100;
   assert.equal(await expireTurn(timedRoom,Date.now()),true);
