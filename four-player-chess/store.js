@@ -3,17 +3,21 @@ const DAY=86_400_000;
 const ROOM_TTL=29*DAY;
 function serialize(room){
  return {id:room.id,revision:room.rev,game:room.game,variant:room.variant,
-  seats:room.seats.map(s=>s?{tokenHash:s.tokenHash,lastSeen:s.lastSeen}:null),
-  clock:room.clock,rematch:room.rematch,drawVotes:room.drawVotes,events:room.events,archives:room.archives,gameNo:room.gameNo,created:room.created,updated:room.updated};
+  seats:room.seats.map(s=>s?{tokenHash:s.tokenHash,lastSeen:s.lastSeen,userId:s.userId||null,alias:s.alias||null}:null),
+  clock:room.clock,rematch:room.rematch,drawVotes:room.drawVotes,events:room.events,archives:room.archives,gameNo:room.gameNo,
+  title:room.title||"",started:!!room.started,seatReady:room.seatReady||[false,false,false,false],created:room.created,updated:room.updated};
 }
 function deserialize(data){
  if(!data||typeof data.id!=="string"||!/^[A-F0-9]{7}$/.test(data.id)||!data.game||!Array.isArray(data.seats)||data.seats.length!==4||!Number.isInteger(data.revision))throw Error("Invalid stored room.");
  return {id:data.id,rev:data.revision,game:data.game,variant:data.variant||null,
-  seats:data.seats.map(s=>s?{tokenHash:s.tokenHash,lastSeen:Number.isFinite(s.lastSeen)?s.lastSeen:(Number(data.updated)||Date.now()),ws:null}:null),
+  seats:data.seats.map(s=>s?{tokenHash:s.tokenHash,lastSeen:Number.isFinite(s.lastSeen)?s.lastSeen:(Number(data.updated)||Date.now()),userId:s.userId||null,alias:s.alias||null,ws:null}:null),
   clock:data.clock||null,rematch:Array.isArray(data.rematch)&&data.rematch.length===4?data.rematch:[false,false,false,false],
   drawVotes:Array.isArray(data.drawVotes)&&data.drawVotes.length===4?data.drawVotes:[false,false,false,false],
   events:Array.isArray(data.events)?data.events:(data.game.moves?.length?null:[]),
   archives:Array.isArray(data.archives)?data.archives.slice(-8):[],gameNo:Number.isInteger(data.gameNo)&&data.gameNo>0?data.gameNo:1,
+  title:typeof data.title==="string"?data.title.slice(0,40):"",
+  started:typeof data.started==="boolean"?data.started:data.seats.every(Boolean),
+  seatReady:Array.isArray(data.seatReady)&&data.seatReady.length===4?data.seatReady.map(Boolean):data.seats.map(Boolean),
   created:Number(data.created)||Date.now(),updated:Number(data.updated)||Date.now(),lock:Promise.resolve()};
 }
 function createStore(url=process.env.DATABASE_URL,options={}){
@@ -39,9 +43,10 @@ function createStore(url=process.env.DATABASE_URL,options={}){
   const result=await pool.query('SELECT data FROM quadra_rooms WHERE expires_at > now() ORDER BY updated_at DESC LIMIT 200');
   return result.rows.map(r=>deserialize(r.data));
  }
+ async function query(sql,params=[]){if(!pool)throw Error("Accounts require connected PostgreSQL.");return pool.query(sql,params);}
  async function remove(id){if(persistent)await pool.query('DELETE FROM quadra_rooms WHERE id=$1',[id]);}
  async function cleanup(){if(persistent)await pool.query('DELETE FROM quadra_rooms WHERE expires_at <= now()');}
  async function close(){if(pool)await pool.end();}
- return {persistent,init,save,load,remove,cleanup,close};
+ return {persistent,init,save,load,remove,cleanup,close,query};
 }
 module.exports={DAY,ROOM_TTL,serialize,deserialize,createStore};
