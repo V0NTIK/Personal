@@ -4,7 +4,7 @@ const assert=require("node:assert/strict");
 const {once}=require("node:events");
 const WebSocket=require("ws");
 const Engine=require("../engine.js");
-const {app,shutdown,rooms}=require("../server.js");
+const {app,shutdown,rooms,expireTurn}=require("../server.js");
 function nextMessage(ws,predicate,timeout=5000){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{ws.off("message",onMessage);reject(Error("Timed out waiting for WebSocket message."));},timeout);const onMessage=raw=>{let v;try{v=JSON.parse(raw.toString());}catch(e){return;}if(predicate(v)){clearTimeout(timer);ws.off("message",onMessage);resolve(v);}};ws.on("message",onMessage);});}
 test("private room joins and server-authoritative moves over WebSockets",async()=>{
  await new Promise((resolve,reject)=>app.listen(0,"127.0.0.1",e=>e?reject(e):resolve()));
@@ -30,5 +30,19 @@ test("private room joins and server-authoritative moves over WebSockets",async()
   assert.equal(restarted.game.moves.length,0);
   assert.equal(restarted.game.turn,0);
   assert.deepEqual(restarted.rematch,[false,false,false,false]);
+  const timed=await post("/api/rooms",{mode:"teams",clock:"blitz5"});
+  assert.equal(timed.status,201);assert.equal(timed.json.clock,"blitz5");
+  assert.equal(timed.json.variant,"quadra-teams");
+  const timedRoom=rooms.get(timed.json.room);
+  assert.equal(timedRoom.clock.started,false);
+  for(let i=1;i<4;i++)await post("/api/rooms/"+timed.json.room+"/join",{});
+  assert.equal(timedRoom.clock.started,true);
+  timedRoom.clock.remaining[0]=1000;
+  timedRoom.clock.activeSince=Date.now()-1100;
+  assert.equal(await expireTurn(timedRoom,Date.now()),true);
+  assert.equal(timedRoom.game.alive[0],false);
+  assert.equal(timedRoom.game.turn,1);
+  assert.equal(timedRoom.clock.flag,null);
+  assert.equal(timedRoom.clock.started,true);
  }finally{for(const ws of clients)ws.terminate();shutdown();}
 });
