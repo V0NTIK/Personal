@@ -96,7 +96,7 @@ function renderLeaderList(){
   const rank=document.createElement("span");rank.className="rank";rank.textContent="#"+player.position;
   const text=document.createElement("div");
   const name=document.createElement("strong");name.textContent="@"+player.username;
-   if(player.role==="superuser"){const badge=document.createElement("span");badge.className="superuser-badge";badge.textContent=" ✦ SUPERUSER";name.append(badge);}
+   if(player.role==="superuser"){const badge=document.createElement("span");badge.className="superuser-badge";badge.textContent="✦ Superuser";badge.setAttribute("title","Quadra Chess superuser");name.append(badge);}
   const info=document.createElement("small");
   info.textContent=player.games+" played · "+player.wins+" wins"+(player.provisional?" · Provisional":"");
   text.append(name,info);
