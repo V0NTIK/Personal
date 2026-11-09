@@ -102,12 +102,14 @@
         <button type="button" class="tab" id="tab-settings" data-tab="settings" role="tab" aria-controls="panel-settings" aria-selected="false">Settings</button>
         <button type="button" class="tab" id="tab-rules" data-tab="rules" role="tab" aria-controls="panel-rules" aria-selected="false">Rules</button>
         <button type="button" class="tab" id="tab-account" data-tab="account" role="tab" aria-controls="panel-account" aria-selected="false">Account</button>
+        <button type="button" class="tab hidden" id="tab-admin" data-tab="admin" role="tab" aria-controls="panel-admin" aria-selected="false">Admin</button>
       </div>
       <section class="tab-panel" id="panel-rooms" role="tabpanel" aria-labelledby="tab-rooms">
         <div class="panel-eyebrow">COMMUNITY LOBBY</div>
         <h2>Find your next room.</h2>
         <p class="panel-desc">Browse public rooms, watch ongoing games, or make a place for friends to return to.</p>
-        <button type="button" class="button primary full" id="roomsCreate">Create a room</button>
+        <div class="rooms-intro-actions"><button type="button" class="button primary" id="roomsCreate">+ Create a room</button><button type="button" class="button ghost" id="roomsLocal">Local play</button></div>
+        <div class="room-fast-join"><label for="quickJoinCode" class="field-label">JOIN WITH A CODE</label><div class="inline-join"><input id="quickJoinCode" class="input" maxlength="7" placeholder="Seven-character code" autocomplete="off"><button type="button" class="button primary" id="quickJoinButton">Join room</button></div></div>
         <div class="rule-divider"></div>
         <div class="two-buttons">
           <div class="field"><label for="roomSearch" class="field-label">SEARCH ROOMS</label><input id="roomSearch" class="input" placeholder="Name or code" autocomplete="off"></div>
@@ -155,7 +157,7 @@
         </div>
         <div id="onlineControls" class="hidden">
           <div id="onlineLobby">
-            <p class="room-help">Start a room for repeat games, or join a room code from a friend. Existing room conversations continue across matches.</p>
+            <p class="room-help">Host a room for repeat games. To join an existing room, use the simple code box on the Rooms page.</p><h3 class="create-heading">Host a new room</h3>
             <div class="field"><label class="field-label" for="roomVisibility">ROOM ACCESS</label>
               <select class="select" id="roomVisibility"><option value="private">Private · Invite only</option><option value="public">Public · Browse and watch</option></select></div>
             <label class="settings-row" for="roomRated"><span><strong>Provisional rated match</strong><small>Requires four signed-in players · Small-community beta rating</small></span><input class="toggle" type="checkbox" id="roomRated"></label>
@@ -192,15 +194,10 @@
               <input id="roomTitleInput" class="input" maxlength="40" placeholder="e.g. Friday chess night" autocomplete="off">
             </div>
             <p class="notice">The room persists for multiple matches. All four players confirm readiness before each new round.</p>
-            <div class="field">
-              <label class="field-label" for="roomInput">ROOM CODE</label>
-              <input class="input" id="roomInput" maxlength="7" placeholder="Enter a 7-character code" autocomplete="off" autocapitalize="characters" spellcheck="false">
-            </div>
-            <div class="two-buttons">
-              <button type="button" class="button primary" id="createRoom">Create room</button>
-              <button type="button" class="button ghost" id="joinRoom">Join room</button>
-            </div>
-            <button type="button" class="button ghost full hidden" id="resumeRoom" style="margin-top:9px">Reconnect to my room</button>
+            <div class="hidden"><label for="roomInput">Code</label><input class="input" id="roomInput" maxlength="7"></div>
+             <button type="button" class="button primary full" id="createRoom">Create my room</button>
+             <button type="button" class="button ghost hidden" id="joinRoom">Join</button>
+             <button type="button" class="button ghost full hidden" id="resumeRoom" style="margin-top:9px">Reconnect to my room</button>
           </div>
           <div id="roomDetails" class="hidden">
             <div class="room-box">
