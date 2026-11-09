@@ -145,3 +145,43 @@ test("legacy stored rooms without replay fields load safely",()=>{
  assert.deepEqual(migrated.drawVotes,[false,false,false,false]);
  assert.equal(migrated.gameNo,1);
 });
+
+test("Chess.com-style clock presets remain deterministic and support custom increments",()=>{
+ assert.equal(Clock.PRESETS.bullet1.initialMs,60000);
+ assert.equal(Clock.PRESETS.blitz3inc.incrementMs,2000);
+ assert.equal(Clock.PRESETS.blitz5inc.incrementMs,5000);
+ const clock=Clock.create({type:"custom",minutes:7,incrementSeconds:3});
+ assert.equal(clock.preset,"custom");
+ assert.equal(clock.initialMs,420000);
+ assert.equal(clock.incrementMs,3000);
+ Clock.start(clock,1000);
+ Clock.settle(clock,0,11000);
+ Clock.moved(clock,0,11000);
+ assert.equal(clock.remaining[0],413000);
+ const copy=Clock.copy(clock);
+ assert.equal(copy.incrementMs,3000);
+ assert.deepEqual(copy.remaining,clock.remaining);
+ assert.throws(()=>Clock.create({type:"custom",minutes:0,incrementSeconds:10}),/Custom/);
+ assert.throws(()=>Clock.create({type:"custom",minutes:5,incrementSeconds:100}),/Custom/);
+ assert.throws(()=>Clock.create("nonexistent"),/Unknown/);
+});
+test("legacy clock snapshots still support increments through the preset registry",()=>{
+ const clock=Clock.create("rapid15");
+ delete clock.incrementMs;delete clock.initialMs;
+ Clock.start(clock,0);Clock.settle(clock,0,1000);Clock.moved(clock,0,1000);
+ assert.equal(clock.remaining[0],909000);
+ assert.equal(Clock.copy(clock).incrementMs,10000);
+});
+test("store roundtrip retains readiness, linked account alias and customized room title",()=>{
+ const original={id:"ABE1234",rev:2,variant:"quadra-ffa",game:Engine.fresh(),seats:[{tokenHash:"a".repeat(64),lastSeen:100,userId:"d49d58ad-baad-42e1-b062-40ee917cb809",alias:"tactician",ws:null},null,null,null],
+ clock:Clock.create({type:"custom",minutes:7,incrementSeconds:3}),rematch:[false,false,false,false],drawVotes:[false,false,false,false],
+ events:[],archives:[],gameNo:1,title:"Weekend match",started:false,seatReady:[true,false,false,false],created:100,updated:200};
+ const again=deserialize(serialize(original));
+ assert.equal(again.title,"Weekend match");
+ assert.equal(again.started,false);
+ assert.equal(again.seatReady[0],true);
+ assert.equal(again.seats[0].userId,original.seats[0].userId);
+ assert.equal(again.seats[0].alias,"tactician");
+ assert.equal(again.seats[0].ws,null);
+ assert.equal(again.clock.incrementMs,3000);
+});
