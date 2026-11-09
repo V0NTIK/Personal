@@ -1,0 +1,122 @@
+"use strict";
+const test=require("node:test");
+const assert=require("node:assert/strict");
+const fs=require("node:fs");
+const path=require("node:path");
+const vm=require("node:vm");
+const Engine=require("../engine.js");
+const markup=fs.readFileSync(path.join(__dirname,"../index.html"),"utf8");
+const source=fs.readFileSync(path.join(__dirname,"../app.js"),"utf8");
+const ids=[...markup.matchAll(/\bid="([^"]+)"/g)].map(x=>x[1]);
+class MockElement{
+ constructor(){
+  this.children=[];this.dataset={};this.style={};this.events={};this.attrs={};this.textContent="";this.className="";this.value="";this.checked=false;this.disabled=false;this.tabIndex=0;
+  const set=new Set();
+  this.classList={add(...v){v.forEach(x=>set.add(x))},remove(...v){v.forEach(x=>set.delete(x))},toggle(k,force){const state=force===undefined?!set.has(k):!!force;state?set.add(k):set.delete(k);return state;},contains:k=>set.has(k)};
+ }
+ append(...v){this.children.push(...v);}
+ replaceChildren(...v){this.children=[...v];}
+ addEventListener(name,fn){this.events[name]=fn;}
+ setAttribute(k,v){this.attrs[k]=v;}
+ get firstElementChild(){return this.children[0];}
+ focus(){}
+ scrollIntoView(){}
+ emit(name,event={}){return this.events[name]?.(event);}
+}
+function launch({storage=new Map(),url=""}={}){
+ const nodes={};for(const id of ids)nodes[id]=new MockElement();
+ const tabs=["play","moves","settings","rules"].map(tab=>{const node=nodes["tab-"+tab];node.dataset.tab=tab;return node;});
+ const document={
+  getElementById:id=>nodes[id],
+  createElement:()=>new MockElement(),
+  createTextNode:s=>s,
+  querySelectorAll:q=>q==="[data-tab]"?tabs:[],
+  documentElement:{style:{values:{},setProperty(k,v){this.values[k]=v;}}},
+  addEventListener(){}
+ };
+ const localStorage={getItem:k=>storage.has(k)?storage.get(k):null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
+ const session=new Map(),sessionStorage={getItem:k=>session.has(k)?session.get(k):null,setItem:(k,v)=>session.set(k,v),removeItem:k=>session.delete(k)};
+ const sockets=[];
+ class FakeSocket{
+  static OPEN=1;
+  constructor(target){this.target=target;this.readyState=1;this.sent=[];sockets.push(this);}
+  send(payload){this.sent.push(JSON.parse(payload));}
+  close(){this.readyState=3;}
+  receive(value){this.onmessage?.({data:JSON.stringify(value)});}
+ }
+ const window={QuadraCore:Engine,matchMedia:()=>({matches:false}),addEventListener(){}};
+ const navigator={clipboard:{writeText:async()=>{}}};
+ const location={origin:"https://quadra-chess.onrender.com",pathname:"/",search:url};
+ const requests=[];
+ const fetch=async(url,options)=>{requests.push({url,options});if(url.endsWith("/api/rooms"))return {ok:true,json:async()=>({room:"ABC1234",seat:0,token:"t".repeat(43),mode:"ffa",revision:0})};return {ok:true,json:async()=>({room:"ABC1234",seat:1,token:"q".repeat(43),mode:"ffa",revision:0})};};
+ const context={window,document,localStorage,sessionStorage,navigator,location,URLSearchParams,WebSocket:FakeSocket,fetch,AbortController,
+ setTimeout:()=>1,clearTimeout:()=>{},setInterval:()=>{},confirm:()=>true,prompt:()=>{}};
+ vm.runInNewContext(source,context,{filename:"app.js",timeout:5000});
+ return {nodes,window,storage,sockets,requests,document,sessionStorage};
+}
+function square(nodes,index){return nodes.board.children.find(c=>c.dataset.square===String(index));}
+test("all required IDs exist uniquely and board renders 196 cells and four player cards",()=>{
+ assert.equal(new Set(ids).size,ids.length);
+ const {nodes}=launch();
+ assert.equal(nodes.board.children.length,196);
+ assert.equal(nodes.players.children.length,4);
+ assert.equal(nodes.status.textContent,"Red to move");
+});
+test("local movement, undo and deterministic replay work",()=>{
+ const {nodes,window}=launch();
+ const m=Engine.legal(Engine.fresh(),0)[0];
+ square(nodes,m.from).emit("click");
+ assert.ok(nodes.board.children.some(c=>c.classList.contains("selected")));
+ square(nodes,m.to).emit("click");
+ assert.equal(window.QuadraApp.getState().moves.length,1);
+ assert.equal(window.QuadraApp.getState().turn,1);
+ nodes["tab-moves"].emit("click");
+ assert.equal(nodes["tab-moves"].attrs["aria-selected"],"true");
+ nodes.reviewHome.emit("click");assert.equal(window.QuadraApp.getReviewIndex(),0);
+ nodes.reviewLive.emit("click");assert.equal(window.QuadraApp.getReviewIndex(),null);
+ nodes.undo.emit("click");assert.equal(window.QuadraApp.getState().turn,0);
+});
+test("autosave restores the local game after page reload",()=>{
+ const storage=new Map();
+ const first=launch({storage});
+ const m=Engine.legal(Engine.fresh(),0)[0];
+ square(first.nodes,m.from).emit("click");
+ square(first.nodes,m.to).emit("click");
+ assert.ok(storage.has("quadra-autosave-v3"));
+ const second=launch({storage});
+ assert.equal(second.window.QuadraApp.getState().turn,1);
+ assert.equal(second.window.QuadraApp.getState().moves.length,1);
+});
+test("settings change board colors and legal destination visibility",()=>{
+ const {nodes,document}=launch();
+ const m=Engine.legal(Engine.fresh(),0)[0];
+ square(nodes,m.from).emit("click");
+ assert.ok(nodes.board.children.some(c=>c.classList.contains("candidate")));
+ nodes.showHints.checked=false;
+ nodes.showHints.emit("change",{target:nodes.showHints});
+ assert.ok(!nodes.board.children.some(c=>c.classList.contains("candidate")));
+ nodes.boardtheme.value="wood";
+ nodes.boardtheme.emit("change",{target:nodes.boardtheme});
+ assert.equal(document.documentElement.style.values["--board-dark"],"#a88b68");
+});
+test("private online room handshake gates moves and submits server move",async()=>{
+ const {nodes,sockets,requests}=launch();
+ nodes.onlineMode.emit("click");
+ assert.equal(nodes.onlineMode.attrs["aria-pressed"],"true");
+ await nodes.createRoom.emit("click");
+ assert.equal(requests.length,1);
+ assert.equal(sockets.length,1);
+ const ws=sockets[0];ws.onopen();
+ assert.equal(ws.sent[0].type,"hello");
+ ws.receive({type:"welcome",seat:0});
+ const state=Engine.fresh();
+ ws.receive({type:"state",revision:0,ready:false,seats:[{claimed:true,online:true},{claimed:false,online:false},{claimed:false,online:false},{claimed:false,online:false}],game:state});
+ const m=Engine.legal(state,0)[0];
+ square(nodes,m.from).emit("click");
+ assert.equal(ws.sent.length,1,"no moves while seats unfilled");
+ ws.receive({type:"state",revision:0,ready:true,seats:[{claimed:true,online:true},{claimed:true,online:true},{claimed:true,online:true},{claimed:true,online:true}],game:state});
+ square(nodes,m.from).emit("click");square(nodes,m.to).emit("click");
+ assert.equal(ws.sent.at(-1).type,"move");
+ assert.equal(ws.sent.at(-1).from,m.from);
+ assert.equal(ws.sent.at(-1).to,m.to);
+});
