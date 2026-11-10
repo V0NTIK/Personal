@@ -78,6 +78,21 @@ Import the account table **before** the sessions and stats tables because they r
 
 **Preferred:** Run the cross-connector, server-side data copy using the Render read-only Postgres query capability and Supabase SQL capability with the maintenance freeze active. Batch writes transactionally. Never echo credential hashes or sensitive records into the chat or logs.
 
+**Included verified copy utility:** `scripts/migrate-postgres.cjs` uses the existing `pg` dependency. It refuses to modify a nonempty destination, requires `MIGRATION_READ_ONLY=1` to be verified through the live API health check, copies all six tables in foreign-key-safe order, and checks each batch using PostgreSQL-side row checksums before committing a single destination transaction. It preserves full timestamp precision and never prints raw account/session data.
+
+```sh
+# Load URLs into secure environment variables outside shell history:
+# QUADRA_SOURCE_DATABASE_URL = source Render External Database URL
+# QUADRA_TARGET_DATABASE_URL = target Supabase Session Pooler URL
+npm install --ignore-scripts
+node scripts/migrate-postgres.cjs --plan
+
+# Only AFTER enabling and confirming API maintenance mode:
+QUADRA_MIGRATION_CONFIRM=copy-frozen-source node scripts/migrate-postgres.cjs --execute
+```
+
+Run this from the new repository checkout on a machine with outbound database access. **Do not pass credential URLs to `npm` commands or include them in a public GitHub Action.** The utility does not create a Supabase project or decide the project region; those must be confirmed first. If checksums or transaction commits fail, target data copying rolls back.
+
 **Alternative:** Use PostgreSQL native tools from a secure machine with network access. For a source database at Postgres 18, use a `pg_dump` client compatible with version 18. Because target versions may differ, precreate the schema from the migration file and perform a **data-only** restore to avoid importing incompatible Postgres internals.
 
 An example (URLs passed via secure environment, never written to the repository):
