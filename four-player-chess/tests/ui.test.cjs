@@ -35,7 +35,7 @@ class MockElement{
  scrollIntoView(){}
  emit(name,event={}){return this.events[name]?.(event);}
 }
-function launch({storage=new Map(),url=""}={}){
+function launch({storage=new Map(),session=new Map(),url=""}={}){
  const nodes={};for(const id of ids)nodes[id]=new MockElement();
  const tabs=["local","create","rooms","play","moves","review","community","settings","rules","account","admin"].map(tab=>{const node=nodes["tab-"+tab];node.dataset.tab=tab;return node;});
  const document={
@@ -47,7 +47,7 @@ function launch({storage=new Map(),url=""}={}){
   addEventListener(){}
  };
  const localStorage={getItem:k=>storage.has(k)?storage.get(k):null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
- const session=new Map(),sessionStorage={getItem:k=>session.has(k)?session.get(k):null,setItem:(k,v)=>session.set(k,v),removeItem:k=>session.delete(k)};
+ const sessionStorage={getItem:k=>session.has(k)?session.get(k):null,setItem:(k,v)=>session.set(k,v),removeItem:k=>session.delete(k)};
  const sockets=[];
  class FakeSocket{
   static OPEN=1;
@@ -69,7 +69,7 @@ function launch({storage=new Map(),url=""}={}){
  setTimeout:()=>1,clearTimeout:()=>{},setInterval:()=>{},confirm:()=>true,prompt:()=>{}};
  vm.runInNewContext(replaySource,context,{filename:"replay.js",timeout:5000});
  vm.runInNewContext(source,context,{filename:"app.js",timeout:5000});
- return {nodes,window,storage,sockets,requests,document,sessionStorage,location};
+ return {nodes,window,storage,session,sockets,requests,document,sessionStorage,location};
 }
 function square(nodes,index){return nodes.board.children.find(c=>c.dataset.square===String(index));}
 test("all required IDs exist uniquely and board renders 196 cells and four player cards",()=>{
@@ -130,7 +130,7 @@ test("private online room handshake gates moves and submits server move",async()
  ws.receive({type:"state",revision:0,ready:false,seats:[{claimed:true,online:true},{claimed:false,online:false},{claimed:false,online:false},{claimed:false,online:false}],game:state});
  const m=Engine.legal(state,0)[0];
  square(nodes,m.from).emit("click");
- assert.equal(ws.sent.length,1,"no moves while seats unfilled");
+ assert.equal(ws.sent.filter(m=>m.type==="move").length,0,"no moves while seats unfilled");
  ws.receive({type:"state",revision:0,ready:true,seats:[{claimed:true,online:true},{claimed:true,online:true},{claimed:true,online:true},{claimed:true,online:true}],game:state});
  square(nodes,m.from).emit("click");square(nodes,m.to).emit("click");
  assert.equal(ws.sent.at(-1).type,"move");
@@ -383,4 +383,69 @@ test("separate page URLs track navigation and browser-back routes",()=>{
  assert.equal(nodes["panel-rooms"].classList.contains("hidden"),false);
  location.hash="#/home";window.fire("hashchange");
  assert.equal(nodes.homeScreen.classList.contains("hidden"),false);
+});
+
+test("multiple playing and spectating rooms stay connected and switch without vacating",async()=>{
+ const x=launch(),{nodes,sockets,window}=x;
+ await nodes.createRoom.emit("click");
+ const red=sockets[0];red.onopen();red.receive({type:"welcome",seat:0});
+ const seatState=(room,seat,game,ready=false)=>({type:"state",revision:0,room,ready,
+  seats:Array.from({length:4},(_,i)=>({claimed:i===seat,online:i===seat,viewing:i===seat,ready:false})),
+  game,events:[],messages:[]});
+ red.receive(seatState("ABC1234",0,Engine.fresh()));
+ window.QuadraApp.openRoom({room:"DEF5678",seat:1,token:"q".repeat(43),mode:"ffa"});
+ assert.equal(sockets.length,2);
+ const blue=sockets[1];blue.onopen();blue.receive({type:"welcome",seat:1});
+ blue.receive(seatState("DEF5678",1,Engine.fresh()));
+ assert.equal(window.QuadraApp.listRoomSessions().length,2);
+ assert.equal(nodes.headerRoomCount.textContent,"2");
+ assert.equal(red.sent.some(m=>m.type==="vacate"),false);
+ assert.ok(red.sent.some(m=>m.type==="focus"&&m.active===false));
+ window.QuadraApp.watchRoom("FEED123");
+ const viewer=sockets[2];viewer.onopen();viewer.receive({type:"welcome",spectator:true});
+ viewer.receive(seatState("FEED123",0,Engine.fresh()));
+ assert.equal(window.QuadraApp.listRoomSessions().length,3);
+ assert.equal(window.QuadraApp.listRoomSessions().filter(s=>s.spectator).length,1);
+ assert.equal(viewer.sent[0].type,"watch");
+ const updated=Engine.fresh();const m=Engine.legal(updated,0)[0];
+ const moved=Engine.acceptMove(updated,{from:m.from,to:m.to},0);
+ red.receive(seatState("ABC1234",0,moved,true));
+ assert.equal(window.QuadraApp.getState().moves.length,0,"background game must not change foreground board");
+ window.QuadraApp.activateRoom("ABC1234");
+ assert.equal(window.QuadraApp.getState().moves.length,1,"switching restores cached background position");
+ assert.equal(nodes.arena.classList.contains("hidden"),false);
+ assert.equal(nodes.headerRoomCount.textContent,"3");
+ assert.equal(nodes.myPlayingRooms.children.length,2);
+ assert.equal(nodes.myWatchingRooms.children.length,1);
+ assert.equal(blue.sent.some(m=>m.type==="vacate"),false);
+ nodes.myWatchingRooms.children[0].children[3].children[1].emit("click");
+ assert.equal(window.QuadraApp.listRoomSessions().length,2);
+ assert.equal(window.QuadraApp.isRoomOpen("FEED123"),false);
+});
+test("refresh restores multiple independent room sessions instead of a single seat",async()=>{
+ const session=new Map(),first=launch({session});
+ await first.nodes.createRoom.emit("click");
+ first.window.QuadraApp.openRoom({room:"DEF5678",seat:1,token:"q".repeat(43)});
+ first.window.QuadraApp.watchRoom("FEED123");
+ assert.equal(first.window.QuadraApp.listRoomSessions().length,3);
+ const second=launch({session});
+ assert.equal(second.window.QuadraApp.listRoomSessions().length,3);
+ assert.equal(second.sockets.length,3);
+ assert.equal(second.window.QuadraApp.listRoomSessions().filter(s=>s.spectator).length,1);
+ second.window.QuadraApp.activateRoom("DEF5678");
+ assert.equal(second.nodes.headerRoomCount.textContent,"3");
+});
+test("switching to local play keeps background rooms and never resigns a seat",async()=>{
+ const {nodes,sockets,window}=launch();
+ await nodes.createRoom.emit("click");
+ const ws=sockets[0];ws.onopen();ws.receive({type:"welcome"});
+ ws.receive({type:"state",revision:0,ready:false,seats:[{claimed:true,online:true}],game:Engine.fresh()});
+ nodes.headerPlay.emit("click");
+ assert.equal(nodes["panel-local"].classList.contains("hidden"),false);
+ assert.equal(window.QuadraApp.listRoomSessions().length,1);
+ assert.equal(ws.sent.some(m=>m.type==="vacate"),false);
+ nodes.headerRoom.emit("click");
+ assert.equal(nodes["panel-myrooms"].classList.contains("hidden"),false);
+ window.QuadraApp.activateRoom("ABC1234");
+ assert.equal(nodes.waitingRoomScreen.classList.contains("hidden"),false);
 });
