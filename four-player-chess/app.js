@@ -844,7 +844,7 @@ function connectRoom(data,options={}){
    s.connected=false;s.awaiting=false;s.leaving=false;s.lastFocus=undefined;
    if(event.code===4003||event.code===4004||event.code===4009){
     const reason=event.code===4009?"Watch link changed; request a new invitation.":
-     event.code===4004?"Room expired or deleted.":"Room credentials rejected.";
+     event.code===4004?"Room expired or deleted.":(s.lastError||"Room credentials rejected.");
     dismissRoomSession(s,online===s?reason:null);return;
    }
    if(event.code===4001){
