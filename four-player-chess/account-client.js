@@ -72,7 +72,7 @@ async function refreshRooms(){
    meta.append(label,details);
    const button=document.createElement("button");button.className="button ghost";button.type="button";button.textContent="Open";
    button.addEventListener("click",()=>{
-    if(!window.QuadraApp?.canAddRoom?.(info.room)){message("The room limit has been reached. Leave one in My rooms.");return;}
+    if(window.QuadraApp?.canAddRoom&&!window.QuadraApp.canAddRoom(info.room)){message("The room limit has been reached. Leave one in My rooms.");return;}
     if(window.QuadraApp?.isRoomOpen?.(info.room))window.QuadraApp?.activateRoom?.(info.room);
     else window.QuadraApp?.openRoom?.({room:info.room,seat:info.seat,token:null,clock:info.clock,
      title:info.title,variant:info.variant,persistent:true,accountBound:true});
