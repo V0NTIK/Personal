@@ -449,3 +449,27 @@ test("switching to local play keeps background rooms and never resigns a seat",a
  window.QuadraApp.activateRoom("ABC1234");
  assert.equal(nodes.waitingRoomScreen.classList.contains("hidden"),false);
 });
+
+test("browser focus drives per-room Here/Away without disconnecting sockets",async()=>{
+ const {nodes,sockets,window}=launch();
+ await nodes.createRoom.emit("click");
+ const ws=sockets[0];ws.onopen();ws.receive({type:"welcome",seat:0});
+ ws.receive({type:"state",revision:0,ready:false,seats:[{claimed:true,online:true}],game:Engine.fresh()});
+ window.fire("blur");
+ assert.equal(ws.sent.at(-1).type,"focus");
+ assert.equal(ws.sent.at(-1).active,false);
+ assert.equal(ws.readyState,1);
+ window.fire("focus");
+ assert.equal(ws.sent.at(-1).type,"focus");
+ assert.equal(ws.sent.at(-1).active,true);
+});
+test("expired background room does not interrupt unrelated page navigation",async()=>{
+ const {nodes,sockets,window}=launch();
+ await nodes.createRoom.emit("click");
+ const ws=sockets[0];ws.onopen();ws.receive({type:"welcome",seat:0});
+ nodes.headerHome.emit("click");
+ assert.equal(nodes.homeScreen.classList.contains("hidden"),false);
+ ws.receive({type:"room-closed",message:"Expired"});
+ assert.equal(nodes.homeScreen.classList.contains("hidden"),false);
+ assert.equal(window.QuadraApp.listRoomSessions().length,0);
+});
