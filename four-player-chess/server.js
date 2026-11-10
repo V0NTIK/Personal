@@ -66,7 +66,7 @@ function snapshot(r){
  return {type:"state",protocol:2,room:r.id,revision:r.rev,variant:r.variant,persistent:store.persistent,serverNow:t,
  ready:ready(r),filled:filled(r),seatReady:r.seatReady.slice(),title:r.title,
  visibility:r.visibility||"private",rated:!!r.rated,hostSeat:r.hostSeat??0,spectatorCount:r.spectators?.size||0,
-  spectators:[...(r.spectators||[])].filter(ws=>ws.sessionUser).map(ws=>({username:ws.sessionUser.username,role:ws.sessionUser.role||"user"})),
+  spectators:[...(r.spectators||[])].filter(ws=>ws.sessionUser&&ws.readyState===WebSocket.OPEN).map(ws=>({username:ws.sessionUser.username,role:ws.sessionUser.role||"user",viewing:ws.viewing!==false})),
  messages:Social.publicMessages(r.messages),mutedUsers:(r.mutedUsers||[]).length,
  rematch:r.rematch.slice(),drawVotes:r.drawVotes.slice(),events:r.events,gameNo:r.gameNo,
  archives:r.archives.map(a=>({gameNo:a.gameNo,winner:a.winner,endedAt:a.endedAt,moveCount:a.moves.length,clock:a.clock})),
@@ -351,13 +351,21 @@ async function watchRoom(ws,msg){
  if(msg?.type!=="watch"||typeof msg.room!=="string")return false;
  const room=rooms.get(msg.room.toUpperCase());
  if(!room||!spectatorAuthorized(room,msg.key))return false;
- if((room.spectators?.size||0)>=25){emit(ws,{type:"error",error:"The room's spectator capacity is full."});return false;}
  room.spectators??=new Set();
  ws.sessionUser=typeof msg.session==="string"?await auth.verify(msg.session):null;
-  if(ws.sessionUser&&room.seats.some(seat=>seat?.userId===ws.sessionUser.id)){
-   emit(ws,{type:"error",error:"You already play in this room. Open your player seat instead."});return false;
+ if(ws.sessionUser&&room.seats.some(seat=>seat?.userId===ws.sessionUser.id)){
+  emit(ws,{type:"error",error:"You already play in this room. Open your player seat instead."});return false;
+ }
+ // One spectator connection per account per room; different rooms remain independent.
+ if(ws.sessionUser)for(const previous of [...room.spectators]){
+  if(previous.sessionUser?.id===ws.sessionUser.id){
+   room.spectators.delete(previous);previous.close(4001,"Spectator view moved to another tab");
   }
-  room.spectators.add(ws);ws.room=room;ws.seat=-1;ws.spectator=true;ws.viewing=true;
+ }
+ if(room.spectators.size>=25){
+  emit(ws,{type:"error",error:"The room's spectator capacity is full."});return false;
+ }
+ room.spectators.add(ws);ws.room=room;ws.seat=-1;ws.spectator=true;ws.viewing=true;
  emit(ws,{type:"welcome",room:room.id,seat:null,spectator:true,protocol:4});
  broadcast(room);return true;
 }
