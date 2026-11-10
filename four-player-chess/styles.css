@@ -584,3 +584,7 @@ body[data-screen="community"] .leaderboard-list{display:grid;grid-template-colum
  .leader-achievements .achievement-list,.myrooms-list{grid-template-columns:1fr}
  .lobby-actions .button{flex:1}
 }
+
+/* Spectator presence is informational and never grants game/chat permissions. */
+.spectator-entry{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.spectator-presence{font-size:10px;color:#9dcbaf;background:#1e3d35;border-radius:5px;padding:2px 5px}
