@@ -27,7 +27,7 @@ async function loadStats(){
   const data=await jsonFetch("/api/stats");
   for(const [id,key] of [["homeAccounts","accounts"],["homePlayers","playersOnline"],["homeRoomsCount","activeRooms"],["homeSpectators","spectatorsOnline"]])
    $(id).textContent=Number(data[key]||0).toLocaleString();
-  status.textContent=(data.liveGames||0)+" live "+(data.liveGames===1?"game":"games")+" · Numbers reflect this server right now";
+  status.textContent=(data.liveGames||0)+" live "+(data.liveGames===1?"game":"games")+" · Accounts counted once across rooms; guest seats may count separately";
  }catch(e){status.textContent="Live counts unavailable. Rooms may still work.";}
 }
 function infoMetric(label,value){
