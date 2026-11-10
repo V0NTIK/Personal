@@ -135,6 +135,7 @@ function switchPanel(requested,scroll=false){
  if(name==="review")window.QuadraCommunity?.refreshReview?.();
  if(name==="admin")window.QuadraAccount?.refreshAdmin?.();
  updateFocus();renderRoomManager();
+ if(name==="local")render();
  if(scroll&&window.matchMedia?.("(max-width: 940px)").matches){
   (isWaiting?$("waitingRoomScreen"):boardVisible?$("arena"):$("controls")).scrollIntoView({behavior:"smooth",block:"start"});
  }
@@ -655,7 +656,7 @@ function activateRoom(roomId){
   orientation=s.spectator?0:(Number.isInteger(s.seat)?s.seat:0);
   reviewIndex=null;selected=-1;targets=[];pending=null;
  }
- if(s.displaced||(!s.connected&&s.ws?.readyState!==WebSocket.OPEN)){
+ if(s.displaced||(!s.connected&&(!s.ws||s.ws.readyState===WebSocket.CLOSED))){
   s.displaced=false;s.attempts=0;
   s.reconnect?.();
  }
