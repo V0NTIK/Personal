@@ -46,6 +46,9 @@ test("same account may play in several rooms while each room retains an independ
   assert.equal(rejoined.seat,first.seat);
   assert.equal(rejoined.token,null);
   assert.equal(rooms.get(first.room).seats.filter(Boolean).length,1);
+  rooms.get(first.room).started=true;
+  assert.equal((await joinRoom(first.room,{account:SAME})).rejoined,true,"reconnecting during a match reuses its existing seat");
+  rooms.get(first.room).started=false;
   assert.equal(rooms.get(second.room).seats.filter(Boolean).length,1);
   // A guest can watch one room at the same time another room is being played.
   const viewer=new WebSocket(base.replace("http","ws")+"/ws");opened.push(viewer);await once(viewer,"open");
