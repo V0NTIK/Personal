@@ -667,6 +667,7 @@ function activateRoom(roomId){
 }
 function dismissRoomSession(s,reason){
  if(!s||roomSessions.get(s.room)!==s)return;
+ const hadRoomOnScreen=online===s&&["waiting","play","moves","review"].includes(activePanel);
  s.closed=true;if(s.retryTimer)clearTimeout(s.retryTimer);
  s.ws?.close();roomSessions.delete(s.room);
  if(online===s){
@@ -674,10 +675,11 @@ function dismissRoomSession(s,reason){
   if(backup){state=clone(backup.state);stack=backup.stack.map(clone);orientation=backup.orientation;}
   else{state=fresh("ffa");stack=[];}
   reviewIndex=null;selected=-1;targets=[];pending=null;
-  switchPanel(roomSessions.size?"myrooms":"rooms");render();
+  if(hadRoomOnScreen)switchPanel(roomSessions.size?"myrooms":"rooms");
+  render();
  }else renderRoomManager();
  if(!roomSessions.size)backup=null;
- saveRoomRegistry();
+ saveRoomRegistry();updateFocus();
  if(reason)tell(reason);
 }
 function leaveSpecificRoom(s){
