@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+*.dump
+*.sql.gz
+*.backup
+postgres-data/
+.DS_Store
