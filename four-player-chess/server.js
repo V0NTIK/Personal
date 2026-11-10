@@ -12,6 +12,8 @@ const {createStore,ROOM_TTL}=require("./store.js");
 const PORT=Number(process.env.PORT||3001);
 const WEB_ORIGIN=process.env.WEB_ORIGIN||"https://quadra-chess.onrender.com";
 const MAX_ROOMS=200,MAX_BODY=2048;
+// Set only during a controlled data-transfer maintenance window. Restart needed.
+const MIGRATION_READ_ONLY=process.env.MIGRATION_READ_ONLY==="1";
 const rooms=new Map(),rates=new Map(),store=createStore(),auth=createAuth(store),community=createCommunity(store),authRates=new Map();
 const now=()=>Date.now();
 const sha=token=>crypto.createHash("sha256").update(token).digest("hex");
@@ -483,7 +485,12 @@ const app=http.createServer(async(req,res)=>{
   res.writeHead(204,headers(req));res.end();return;
  }
  if(!permitted(req.headers.origin))return send(res,req,403,{error:"Origin not allowed."});
- if(path==="/health"&&req.method==="GET")return send(res,req,200,{ok:true,rooms:rooms.size,protocol:3,accounts:auth.enabled,storage:store.persistent?"postgres":"memory"});
+ if(path==="/health"&&req.method==="GET")return send(res,req,200,{ok:true,maintenance:MIGRATION_READ_ONLY,
+  rooms:rooms.size,protocol:3,accounts:auth.enabled,storage:store.persistent?"postgres":"memory"});
+ if(MIGRATION_READ_ONLY){
+  res.setHeader("Retry-After","180");
+  return send(res,req,503,{error:"Quadra Chess is temporarily read-only for a database migration.",maintenance:true});
+ }
  if(limited(req))return send(res,req,429,{error:"Too many requests."});
  if(path==="/api/stats"&&req.method==="GET"){
    try{
@@ -602,6 +609,7 @@ const app=http.createServer(async(req,res)=>{
 });
 const wss=new WebSocketServer({noServer:true,maxPayload:4096,perMessageDeflate:false});
 app.on("upgrade",(req,socket,head)=>{
+ if(MIGRATION_READ_ONLY){socket.write("HTTP/1.1 503 Service Unavailable\r\nRetry-After: 180\r\nConnection: close\r\n\r\n");socket.destroy();return;}
  if(req.url!=="/ws"||!permitted(req.headers.origin)){socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");socket.destroy();return;}
  wss.handleUpgrade(req,socket,head,ws=>wss.emit("connection",ws,req));
 });
@@ -662,6 +670,7 @@ const heartbeat=setInterval(()=>{
  for(const ws of wss.clients){if(!ws.isAlive){ws.terminate();continue;}ws.isAlive=false;ws.ping();}
 },30000);
 const ticker=setInterval(()=>{
+ if(MIGRATION_READ_ONLY)return;
  const t=now();
  for(const r of rooms.values()){
   if(r.game.winner||!r.clock?.started||r.clock.remaining===null)continue;
@@ -671,6 +680,7 @@ const ticker=setInterval(()=>{
  }
 },1000);
 const cleanup=setInterval(async()=>{
+ if(MIGRATION_READ_ONLY)return;
  const t=now();
  for(const [key,r] of rooms){
   if(t-r.updated>ROOM_TTL){
@@ -696,7 +706,7 @@ async function startServer(){
   if(rooms.size>=MAX_ROOMS)break;
   if(!variants.byId(r.variant)||!r.game||!r.clock)continue;
   rooms.set(r.id,r);
-  if(r.rated&&r.game?.winner){
+  if(!MIGRATION_READ_ONLY&&r.rated&&r.game?.winner){
    try{await community.record(r);}catch(e){console.error("Rated result recovery failed:",r.id,e.message);}
   }
  }
