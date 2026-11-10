@@ -410,7 +410,9 @@ function updateRoom(){
   else for(const viewer of online.spectators){
    const line=document.createElement("div");line.className="spectator-entry";line.textContent="@"+viewer.username;
    if(viewer.role==="superuser")line.append(superuserBadge());
-   audience.append(line);
+   const presence=document.createElement("small");presence.className="spectator-presence";
+   presence.textContent=viewer.viewing===false?"Away":"Here";
+   line.append(presence);audience.append(line);
   }
  $("waitingRoomName").textContent=online.title||"Room "+online.room;
   $("waitingRoomDescription").textContent=online.spectator?
