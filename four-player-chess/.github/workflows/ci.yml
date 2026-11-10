@@ -1,0 +1,28 @@
+name: Quadra Chess CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Validate JavaScript syntax
+        run: |
+          for file in server.js store.js auth.js community.js app.js account-client.js rooms-client.js engine.js replay.js review.js viewer.js; do node --check "$file"; done
+      - name: Run the full suite
+        run: npm test
