@@ -27,7 +27,7 @@ function launch({signedIn=false}={}){
   if(url.includes("/join"))return {ok:true,json:async()=>({room:"ABC1234",seat:2,token:"t".repeat(43)})};
   throw Error("Unexpected URL "+url);
  };
- const app={isOnline:()=>false,openRoom:args=>calls.push({openRoom:args}),watchRoom:room=>calls.push({watch:room}),
+ const app={isOnline:()=>false,isRoomOpen:()=>false,canAddRoom:()=>true,openRoom:args=>calls.push({openRoom:args}),watchRoom:room=>calls.push({watch:room}),
   changePanel:panel=>calls.push({panel}),getState:()=>({winner:"Red wins!"}),
   getPositions:()=>[{},{}],reviewPly:ply=>calls.push({ply})};
  const window={QuadraApp:app,QuadraCore:{},QuadraReview:{review:()=>({result:"Red wins!",moves:1,
@@ -43,20 +43,22 @@ test("public room cards include join/watch behavior and filter by active games",
  await x.nodes.refreshPublicRooms.emit("click");
  assert.equal(x.nodes.publicRoomList.children.length,2);
  const first=x.nodes.publicRoomList.children[0];
- assert.match(first.children[1].textContent,/2\/4 seats/);
- first.children[2].children[1].emit("click");
+ assert.equal(first.children[1].children[0].children[1].textContent,"2/4");
+ first.children[3].children[1].emit("click");
  assert.ok(x.calls.some(c=>c.watch==="ABC1234"));
- await first.children[2].children[0].emit("click");
+ await first.children[3].children[0].emit("click");
  assert.ok(x.calls.some(c=>c.openRoom?.room==="ABC1234"));
  x.nodes.roomFilter.value="watch";x.nodes.roomFilter.emit("change");
  assert.equal(x.nodes.publicRoomList.children.length,1);
- assert.match(x.nodes.publicRoomList.children[0].children[0].children[0].textContent,/Rated Showcase/);
+ assert.match(x.nodes.publicRoomList.children[0].children[0].children[0].children[0].textContent,/Rated Showcase/);
 });
 test("leaderboards render provisional ratings without public account secrets",async()=>{
  const x=launch({signedIn:true});
  await x.nodes.refreshLeaders.emit("click");
- assert.equal(x.nodes.leaderboardList.children.length,1);
- assert.match(x.nodes.leaderboardList.children[0].children[1].children[0].textContent,/strategist/);
+ assert.equal(x.nodes.leaderPodium.children.length,1);
+ assert.equal(x.nodes.leaderboardList.children.length,2);
+ assert.match(x.nodes.leaderboardList.children[1].children[1].children[0].children[0].textContent,/strategist/);
+ assert.equal(x.nodes.leaderTotalPlayers.textContent,"1");
  assert.equal(x.nodes.communityAchievements.children.length,1);
  assert.ok(x.requests.every(v=>!JSON.stringify(v).includes("password")));
 });

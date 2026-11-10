@@ -2,9 +2,39 @@
 
 **Playable website:** https://quadra-chess.onrender.com  
 **API health:** https://quadra-chess-api.onrender.com/health  
-**Current release:** 0.9 — distinct room, local-play, setup, staging and live-game views
+**Current release:** 0.10 — concurrent room participation, per-room presence and revamped discovery/rankings
 
 A mobile-friendly four-player chess beta with local pass-and-play and private online rooms. The platform uses GitHub, a free Render static site, a free Render Node.js API, and a free Render PostgreSQL database. There is currently no public matchmaking, paid subscription, advertising, or account requirement.
+
+## Version 0.10 — Multiple simultaneous rooms and a clearer community
+
+Quadra now distinguishes **membership**, **network connection**, and **currently viewing**. A single browser tab can maintain up to **ten room sessions**, mixing seated-player rooms with spectator rooms. Only one room is shown interactively on the page at a time; all others retain their independent WebSockets, snapshots, server clocks, chat histories, role permissions and readiness. Each session has its own reconnect state. Switching rooms **never vacates or resigns** a seat.
+
+### My Rooms and account recovery
+
+- **My rooms** (`#/my-rooms`) lists room sessions under separate **Playing** and **Spectating** sections, displaying their status, roles, Ready counts, ongoing games and alerts when it is your turn.
+- **Open** changes which room is on screen. **Leave** explicitly releases a playing seat (resigning when leaving an active game) or closes a spectator connection.
+- The registry is stored in **tab-scoped sessionStorage**, including per-room seat tokens or private spectator invitations. Browser reloads restore multiple sessions; a signed-in account can also retrieve other account-owned seats from the server.
+- When the same account tries to join a room it already occupies, the server returns that existing seat instead of consuming another. Reconnecting during a live game is supported.
+- The same account can play in multiple *different* rooms, but cannot own more than one color or simultaneously spectate and play **the same room** while authenticated.
+- One server WebSocket represents one seat. Opening that same seat in another browser tab/device transfers the connection; the old tab stops auto-reconnecting, preventing takeover loops. The existing seat remains recoverable when signed in.
+- Logout closes authenticated socket sessions in that tab. This is **not** equivalent to voluntarily leaving a room: seats remain reserved until explicitly vacated, reclaimed by the lobby expiration policy, or the room expires.
+
+### Presence and clocks
+
+- **Here** means the player is connected and currently viewing that room. **Away** means the room is not being viewed or the seat is disconnected. **Open** means nobody has claimed the seat. **Ready** remains an independent lobby confirmation.
+- Background rooms continue receiving server state and updating clocks. Switching tabs or rooms **never pauses timed matches, readiness or a player's turn**. Rooms that become active retain the latest cached state.
+- Signed-in spectators are listed by username with **Here/Away** focus; guest spectators remain anonymous. The room spectator count measures open watcher connections, including people viewing other rooms.
+- Platform statistics distinguish **connected seats** from **distinct signed-in playing accounts**. Anonymous seats cannot reliably be deduplicated across unrelated rooms or devices.
+- A guest's seat token is tab-specific and does not provide a cross-device identity or permanent recovery guarantee. Durable multi-device recovery requires an account.
+- When room storage is in memory, server restarts can erase rooms. Free PostgreSQL retention limitations remain relevant.
+
+### Room Lobby and Leaders
+
+- The public directory now shows public-room counts, joinable rooms and live games, with a compact search/filter/sort toolbar and readable room cards showing seats, spectators, clock, hosting and ratings.
+- Rooms that are already open in your browser are opened directly, not joined twice.
+- Leaders now has a **top-three podium**, a single full standings table with games/wins/rating columns, a format selector and a separate achievements section.
+- Neither page changes game rules, ratings, spectator privileges or membership without a deliberate action.
 
 ## Version 0.9 — Clear pages and dedicated pregame staging
 

@@ -61,7 +61,7 @@ async function refreshRooms(){
   const host=$("accountRoomList");host.replaceChildren();
   if(!data.rooms?.length){
    const p=document.createElement("p");p.className="history-empty";
-   p.textContent="No rooms linked to your account yet. Create one under Play.";host.append(p);await refreshProfile();return;
+   p.textContent="No rooms linked to your account yet. Create one under Create / Join.";host.append(p);await refreshProfile();return;
   }
   for(const info of data.rooms){
    const line=document.createElement("div");line.className="archive-row";
@@ -72,9 +72,10 @@ async function refreshRooms(){
    meta.append(label,details);
    const button=document.createElement("button");button.className="button ghost";button.type="button";button.textContent="Open";
    button.addEventListener("click",()=>{
-    if(window.QuadraApp?.isOnline?.()){message("Leave your current room before opening another.");return;}
-    window.QuadraApp?.openRoom?.({room:info.room,seat:info.seat,token:null,clock:info.clock,title:info.title,variant:info.variant,persistent:true});
-    window.QuadraApp?.changePanel?.("play",true);
+    if(window.QuadraApp?.canAddRoom&&!window.QuadraApp.canAddRoom(info.room)){message("The room limit has been reached. Leave one in My rooms.");return;}
+    if(window.QuadraApp?.isRoomOpen?.(info.room))window.QuadraApp?.activateRoom?.(info.room);
+    else window.QuadraApp?.openRoom?.({room:info.room,seat:info.seat,token:null,clock:info.clock,
+     title:info.title,variant:info.variant,persistent:true,accountBound:true});
    });
    line.append(meta,button);host.append(line);
   }
@@ -111,7 +112,7 @@ async function recover(){
  finally{loading=false;}
 }
 async function logout(){
- const previous=token();saveToken(null);account=null;recoveryCode=null;render();message("Signed out of this tab.");
+ const previous=token();saveToken(null);account=null;recoveryCode=null;window.QuadraApp?.onAccountChanged?.();render();message("Signed out of this tab.");
  if(previous)try{await fetch(API+"/api/auth/logout",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+previous},body:"{}"});}catch(e){}
 }
 async function deleteAccount(){
@@ -122,7 +123,7 @@ async function deleteAccount(){
  try{
   await request("delete","POST",{password});
   $("authDeletePassword").value="";
-  saveToken(null);account=null;recoveryCode=null;render();message("Your account was deleted.");
+  saveToken(null);account=null;recoveryCode=null;window.QuadraApp?.onAccountChanged?.();render();message("Your account was deleted.");
  }catch(e){message(e.message);}
 }
 async function refreshAdmin(){

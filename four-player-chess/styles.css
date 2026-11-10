@@ -452,3 +452,139 @@ body[data-screen="rooms"] #panel-rooms>.room-help{font-size:13px}
 .leader-entry .superuser-badge{margin:0}
 .spectator-entry{display:inline-flex;align-items:center;flex-wrap:wrap;gap:5px;overflow-wrap:anywhere}
 .spectator-entry .superuser-badge{margin:0}
+
+/* v0.10: concurrent room manager and quieter discovery/ranking pages */
+.room-count{min-width:22px;min-height:22px;border-radius:999px;background:#37584a;color:#e6ffec;
+ display:inline-grid;place-items:center;font-size:11px;font-weight:900;padding:1px 6px;margin-left:5px}
+.lobby-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:19px 0}
+.lobby-actions .button{min-height:40px;padding:10px 18px}
+.lobby-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:24px 0 26px}
+.lobby-summary>div{padding:17px 20px;background:#1b302f;border:1px solid #365349;border-radius:14px;display:grid;gap:4px}
+.lobby-summary strong{font-family:Manrope,system-ui,sans-serif;font-size:27px;color:#e2ffeb;font-variant-numeric:tabular-nums}
+.lobby-summary span{font-size:11px;color:#abc5b8}
+.lobby-section-heading{display:flex;align-items:baseline;justify-content:space-between;gap:15px;margin:2px 0 12px}
+.lobby-section-heading h3{margin:0;font-size:16px;letter-spacing:0;text-transform:none;color:#e2f7eb}
+.lobby-section-heading p{font-size:12px;margin:0}
+.lobby-toolbar{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(120px,.85fr) minmax(150px,.95fr);gap:12px;align-items:end;padding:16px;border:1px solid #314b49;background:#172a33;border-radius:13px}
+.lobby-toolbar .field-label{margin-bottom:7px}
+.lobby-toolbar .input,.lobby-toolbar .select{min-height:43px}
+.lobby-status{font-size:12px;color:#9cb8ab;margin:13px 0 6px}
+body[data-screen="rooms"] .public-room-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;margin:12px 0 18px}
+.public-room-card{padding:20px!important;gap:16px!important;border-radius:16px!important;background:#192b33!important}
+.room-card-top{align-items:flex-start!important}
+.room-card-title{display:grid;gap:6px;min-width:0}
+.room-card-title .room-card-name{font-size:16px!important;line-height:1.35;color:#ebfbef}
+.room-code-label{font-family:ui-monospace,Consolas,monospace;letter-spacing:.8px;font-size:11px;color:#91a9a9}
+.room-card-status{font-size:10px!important;font-weight:800;background:#274438!important;border:1px solid #446854;padding:6px 9px!important}
+.room-card-status.live{background:#483c2d!important;border-color:#8c7144;color:#ffdfa7!important}
+.room-card-status.finished{background:#344251!important;border-color:#516576;color:#c8d9e5!important}
+.directory-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.directory-metric{min-width:0;padding:10px 9px;background:#101f29;border:1px solid #2b4448;border-radius:10px;display:grid;gap:5px}
+.directory-metric small{font-size:9px;letter-spacing:1px;color:#9ab9ac;font-weight:900}
+.directory-metric strong{font-size:13px;line-height:1.35;color:#e7f8ee;overflow-wrap:anywhere}
+.directory-details{display:grid;gap:4px;color:#aac1bc;font-size:11px;line-height:1.6}
+.room-card-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.room-card-actions .button{min-width:0;min-height:42px;font-size:12px!important}
+.directory-empty{grid-column:1/-1;text-align:center;padding:50px 20px;border-radius:15px;
+ background:#152832;border:1px dashed #3f5a57}
+.directory-empty h3{font-size:17px;color:#e8faee;text-transform:none;letter-spacing:0;margin-bottom:8px}
+.directory-empty p{font-size:13px;margin:0 auto 18px;max-width:400px}
+.leader-hero{display:flex;justify-content:space-between;align-items:center;gap:25px;padding-bottom:22px;border-bottom:1px solid #2e4a46}
+.leader-hero h2{font-size:clamp(28px,3vw,38px);letter-spacing:-1.3px;margin:2px 0 7px}
+.leader-hero .panel-desc{font-size:13px;max-width:610px;line-height:1.65;margin:0}
+.leader-summary{flex:0 0 auto;min-width:115px;display:grid;text-align:center;gap:2px;padding:15px 20px;border-radius:13px;background:#20372f;border:1px solid #496555}
+.leader-summary strong{font-size:27px;color:#dbffe9}
+.leader-summary span{font-size:11px;color:#a4c2b4}
+.leader-controls{display:flex;align-items:end;gap:10px;justify-content:space-between;flex-wrap:wrap;margin:22px 0 10px}
+.leader-controls>div{min-width:210px}
+.leader-controls .button{min-height:43px}
+.leader-status{font-size:11px;color:#a3c9b5;margin:6px 0 21px}
+.leader-board-section{margin:22px 0 32px}
+.leader-section-head{display:flex;gap:10px;justify-content:space-between;align-items:center;margin:0 0 14px}
+.leader-section-head h3{color:#e4f5eb;font-size:14px;letter-spacing:0;text-transform:none;margin:0}
+.leader-section-head span{font-size:11px;color:#93ada9}
+.leader-podium{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:26px}
+.podium-entry{display:flex;flex-direction:column;align-items:center;text-align:center;padding:24px 14px;
+ border:1px solid #3f5751;background:#1a3033;border-radius:15px;gap:6px;min-width:0}
+.podium-entry.podium-rank-1{background:linear-gradient(155deg,#2b4234,#1b3036);border-color:#9c8955}
+.podium-position{font-size:12px;color:#f0d69b;font-weight:900}
+.podium-entry .leader-name{margin:6px 0 2px;flex-direction:column;align-items:center;gap:6px}
+.leader-name{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.leader-identity-name{font-size:12px;color:#ebf8f0;font-weight:800;overflow-wrap:anywhere}
+.podium-entry .podium-rating{font-size:28px;font-variant-numeric:tabular-nums;color:#e4ffef;line-height:1.2}
+.podium-entry small{font-size:11px;color:#a9c7b5}
+.podium-record{font-size:10px;color:#9bb7b4;margin-top:7px}
+body[data-screen="community"] .leaderboard-list{display:grid;grid-template-columns:minmax(0,1fr);gap:2px;margin:0}
+.leader-table-heading,.leader-entry{display:grid;grid-template-columns:55px minmax(0,1fr) 86px 86px 95px;gap:12px;align-items:center}
+.leader-table-heading{padding:9px 17px;color:#86aca0;font-size:10px;font-weight:900;letter-spacing:1px}
+.leader-table-heading span:nth-child(n+3){text-align:right}
+.leader-entry{padding:13px 17px;border:0;border-bottom:1px solid #2c4244;background:#15272f;border-radius:0}
+.leader-entry:nth-child(even){background:#1a2d35}
+.leader-entry .rank{font-size:15px;color:#b7e8c9}
+.leader-person{min-width:0;overflow-wrap:anywhere}
+.leader-entry .leader-name{display:flex}
+.leader-entry .leader-number,.leader-entry .rating{text-align:right;font-size:12px;font-weight:800;color:#c1d9ce}
+.leader-entry .rating{font-size:15px;color:#d8ffe8}
+.leader-empty{padding:30px 22px;color:#a6beb6;border:1px dashed #3c5b50;border-radius:12px;text-align:center}
+.leader-achievements{border-top:1px solid #38504b;padding-top:24px;margin-top:25px}
+.leader-achievements .achievement-list{margin-top:17px;grid-template-columns:repeat(3,minmax(0,1fr))}
+.myrooms-actions{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 25px}
+.myrooms-explanation{padding:15px 18px;border-left:3px solid #91dab2;background:#182f31;border-radius:7px;margin-bottom:28px}
+.myrooms-explanation strong{color:#e8f6e9;font-size:12px}
+.myrooms-explanation p{margin:5px 0 0;font-size:12px;color:#adccc0}
+.myrooms-header{display:flex;align-items:center;justify-content:space-between;margin:23px 0 12px;gap:15px}
+.myrooms-header h3{font-size:15px;color:#e3f5e9;letter-spacing:0;text-transform:none;margin:0}
+.myrooms-header span{font-size:11px;color:#94c4aa}
+.myrooms-header .button{min-height:33px;padding:7px 12px}
+.myrooms-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.myrooms-empty{grid-column:1/-1;border:1px dashed #385351;padding:20px;border-radius:12px;font-size:12px;color:#a7c4b8;margin:0}
+.myroom-card{padding:18px;background:#1a2d33;border:1px solid #354f4e;border-radius:13px;display:grid;gap:8px;min-width:0}
+.myroom-card.is-viewing{border-color:#8ad2aa;background:#243b35}
+.myroom-card-top{display:flex;align-items:start;justify-content:space-between;gap:10px}
+.myroom-card-top strong{font-size:14px;color:#e7f7ec;overflow-wrap:anywhere}
+.myroom-status{font-size:10px;padding:5px 7px;border-radius:6px;background:#26483b;color:#c4f2d6;white-space:nowrap}
+.myroom-code{font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:1.4px;color:#a5cdb7}
+.myroom-meta{font-size:11px;color:#b9cbc7;line-height:1.6}
+.myroom-card-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:5px}
+.myroom-saved{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 17px;background:#192b34;border:1px solid #365354;border-radius:11px;min-width:0}
+.myroom-saved>div{min-width:0;display:grid;gap:4px}
+.myroom-saved strong{color:#e2f2ec;font-size:12px;overflow-wrap:anywhere}
+.myroom-saved small{color:#9db8af;font-size:11px}
+.myroom-saved .button{flex:none}
+@media(max-width:850px){
+ body[data-screen="rooms"] .public-room-list{grid-template-columns:1fr}
+ .lobby-toolbar{grid-template-columns:1.5fr 1fr}
+ .lobby-sort{grid-column:1/-1}
+ .leader-podium{gap:7px}.podium-entry{padding:17px 8px}
+ .leader-table-heading,.leader-entry{grid-template-columns:45px minmax(0,1fr) 60px 60px 70px}
+ .leader-achievements .achievement-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:600px){
+ .lobby-summary{gap:6px}.lobby-summary>div{padding:12px 10px;text-align:center}
+ .lobby-summary strong{font-size:24px}
+ .lobby-summary span{font-size:10px}
+ .lobby-section-heading{display:block}
+ .lobby-toolbar{grid-template-columns:1fr}
+ .lobby-sort{grid-column:auto}
+ .leader-hero{align-items:start}
+ .leader-summary{padding:10px;min-width:74px}
+ .leader-summary strong{font-size:21px}
+ .leader-summary span{font-size:10px}
+ .leader-podium{grid-template-columns:1fr}
+ .podium-entry{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;text-align:left;gap:4px;padding:14px}
+ .podium-entry .leader-name{align-items:flex-start;margin:0}
+ .podium-entry .podium-rating{font-size:20px}
+ .podium-entry small{display:none}
+ .podium-record{grid-column:2/4;margin:0}
+ .leader-table-heading,.leader-entry{grid-template-columns:40px minmax(0,1fr) 38px 38px 58px;gap:5px;padding:10px 6px;font-size:10px}
+ .leader-table-heading{font-size:9px}
+ .leader-entry .leader-number{font-size:11px}
+ .leader-entry .rating{font-size:12px}
+ .leader-name{gap:3px}
+ .leader-achievements .achievement-list,.myrooms-list{grid-template-columns:1fr}
+ .lobby-actions .button{flex:1}
+}
+
+/* Spectator presence is informational and never grants game/chat permissions. */
+.spectator-entry{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.spectator-presence{font-size:10px;color:#9dcbaf;background:#1e3d35;border-radius:5px;padding:2px 5px}

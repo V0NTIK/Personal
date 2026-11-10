@@ -58,7 +58,7 @@ async function closeRoom(r,reason="Room closed"){
  for(const s of r.seats)if(s?.ws){emit(s.ws,{type:"room-closed",message:reason});s.ws.close(4004,reason);}
  for(const watcher of r.spectators||[]){emit(watcher,{type:"room-closed",message:reason});watcher.close(4004,reason);}
 }
-function seatSummary(r){return r.seats.map((s,i)=>({color:i,claimed:!!s,online:!!(s?.ws&&s.ws.readyState===WebSocket.OPEN),ready:!!r.seatReady[i],alias:s?.alias||null,role:s?.ws?.sessionUser?.role||s?.role||"user"}));}
+function seatSummary(r){return r.seats.map((s,i)=>({color:i,claimed:!!s,online:!!(s?.ws&&s.ws.readyState===WebSocket.OPEN),viewing:!!(s?.ws?.readyState===WebSocket.OPEN&&s.ws.viewing!==false),ready:!!r.seatReady[i],alias:s?.alias||null,role:s?.ws?.sessionUser?.role||s?.role||"user"}));}
 const filled=r=>r.seats.every(Boolean);
 const ready=r=>!!r.started;
 function snapshot(r){
@@ -66,7 +66,7 @@ function snapshot(r){
  return {type:"state",protocol:2,room:r.id,revision:r.rev,variant:r.variant,persistent:store.persistent,serverNow:t,
  ready:ready(r),filled:filled(r),seatReady:r.seatReady.slice(),title:r.title,
  visibility:r.visibility||"private",rated:!!r.rated,hostSeat:r.hostSeat??0,spectatorCount:r.spectators?.size||0,
-  spectators:[...(r.spectators||[])].filter(ws=>ws.sessionUser).map(ws=>({username:ws.sessionUser.username,role:ws.sessionUser.role||"user"})),
+  spectators:[...(r.spectators||[])].filter(ws=>ws.sessionUser&&ws.readyState===WebSocket.OPEN).map(ws=>({username:ws.sessionUser.username,role:ws.sessionUser.role||"user",viewing:ws.viewing!==false})),
  messages:Social.publicMessages(r.messages),mutedUsers:(r.mutedUsers||[]).length,
  rematch:r.rematch.slice(),drawVotes:r.drawVotes.slice(),events:r.events,gameNo:r.gameNo,
  archives:r.archives.map(a=>({gameNo:a.gameNo,winner:a.winner,endedAt:a.endedAt,moveCount:a.moves.length,clock:a.clock})),
@@ -136,9 +136,13 @@ async function joinRoom(roomId,options={}){
  const r=rooms.get(roomId);
  if(!r)throw Object.assign(Error("Room not found or expired."),{code:404});
  return lockRoom(r,async()=>{
+  // An account already seated in this room reconnects without consuming another seat.
+  const existing=options.account?r.seats.findIndex(seat=>seat?.userId===options.account.id):-1;
+  if(existing>=0)return {room:roomId,seat:existing,token:null,rejoined:true,revision:r.rev,mode:r.game.mode,
+   variant:r.variant,clock:r.clock.preset,clockSettings:{preset:r.clock.preset,initialMs:r.clock.initialMs,incrementMs:r.clock.incrementMs},
+   persistent:store.persistent,title:r.title,visibility:r.visibility,rated:r.rated};
   if(r.started)throw Object.assign(Error("This match has already started. You can watch until the next round."),{code:409});
   if(r.rated&&!options.account)throw Object.assign(Error("Sign in to join rated rooms."),{code:401});
-  if(options.account&&r.seats.some(s=>s?.userId===options.account.id))throw Object.assign(Error("Your account already owns a seat in this room. Reconnect from Account."),{code:409});
   const chosen=preferredSeat(options.seat,null);
   const seat=chosen===null?r.seats.findIndex(s=>!s):chosen;
   if(seat<0||r.seats[seat])throw Object.assign(Error(chosen===null?"All four seats are taken.":"That color is already claimed."),{code:409});
@@ -168,7 +172,7 @@ async function authentic(ws,msg){
  // An account seat requires a valid unbanned login in addition to its seat token.
  if(seat.userId&&auth.enabled&&verified?.id!==seat.userId)return false;
  if(seat.ws&&seat.ws!==ws&&seat.ws.readyState===WebSocket.OPEN)seat.ws.close(4001,"Connected from another browser");
- seat.ws=ws;seat.lastSeen=now();ws.room=r;ws.seat=msg.seat;ws.spectator=false;
+ seat.ws=ws;seat.lastSeen=now();ws.room=r;ws.seat=msg.seat;ws.spectator=false;ws.viewing=true;
  ws.sessionUser=verified;
  r.updated=now();
  emit(ws,{type:"welcome",room:r.id,seat:msg.seat,protocol:3,persistent:store.persistent});
@@ -347,10 +351,21 @@ async function watchRoom(ws,msg){
  if(msg?.type!=="watch"||typeof msg.room!=="string")return false;
  const room=rooms.get(msg.room.toUpperCase());
  if(!room||!spectatorAuthorized(room,msg.key))return false;
- if((room.spectators?.size||0)>=25){emit(ws,{type:"error",error:"The room's spectator capacity is full."});return false;}
  room.spectators??=new Set();
  ws.sessionUser=typeof msg.session==="string"?await auth.verify(msg.session):null;
-  room.spectators.add(ws);ws.room=room;ws.seat=-1;ws.spectator=true;
+ if(ws.sessionUser&&room.seats.some(seat=>seat?.userId===ws.sessionUser.id)){
+  emit(ws,{type:"error",error:"You already play in this room. Open your player seat instead."});return false;
+ }
+ // One spectator connection per account per room; different rooms remain independent.
+ if(ws.sessionUser)for(const previous of [...room.spectators]){
+  if(previous.sessionUser?.id===ws.sessionUser.id){
+   room.spectators.delete(previous);previous.close(4001,"Spectator view moved to another tab");
+  }
+ }
+ if(room.spectators.size>=25){
+  emit(ws,{type:"error",error:"The room's spectator capacity is full."});return false;
+ }
+ room.spectators.add(ws);ws.room=room;ws.seat=-1;ws.spectator=true;ws.viewing=true;
  emit(ws,{type:"welcome",room:room.id,seat:null,spectator:true,protocol:4});
  broadcast(room);return true;
 }
@@ -458,8 +473,8 @@ function accountRooms(user){
   const seat=r.seats.findIndex(s=>s?.userId===user.id);
   if(seat<0)return null;
   return {room:r.id,seat,title:r.title,variant:r.variant,mode:r.game.mode,started:r.started,
-   finished:!!r.game.winner,turn:r.game.turn,clock:r.clock.preset,updated:r.updated,gameNo:r.gameNo};
- }).filter(Boolean).sort((a,b)=>b.updated-a.updated).slice(0,20);
+   finished:!!r.game.winner,turn:r.game.turn,clock:r.clock.preset,updated:r.updated,gameNo:r.gameNo,host:r.hostSeat===seat,online:!!(r.seats[seat]?.ws?.readyState===WebSocket.OPEN),viewing:!!r.seats[seat]?.ws?.viewing};
+ }).filter(Boolean).sort((a,b)=>b.updated-a.updated).slice(0,100);
 }
 const app=http.createServer(async(req,res)=>{
  const path=(req.url||"").split("?")[0];
@@ -473,8 +488,11 @@ const app=http.createServer(async(req,res)=>{
  if(path==="/api/stats"&&req.method==="GET"){
    try{
     const connected=[...rooms.values()].flatMap(r=>r.seats.filter(x=>x?.ws?.readyState===WebSocket.OPEN));
+    const playingAccounts=new Set(connected.filter(s=>s.userId).map(s=>s.userId));
+    const guestSeats=connected.filter(s=>!s.userId).length;
     const watchers=[...rooms.values()].reduce((sum,r)=>sum+(r.spectators?.size||0),0);
-    return send(res,req,200,{accounts:await auth.countAccounts(),playersOnline:connected.length,spectatorsOnline:watchers,
+    return send(res,req,200,{accounts:await auth.countAccounts(),playersOnline:playingAccounts.size+guestSeats,
+     connectedSeats:connected.length,uniquePlayingAccounts:playingAccounts.size,spectatorsOnline:watchers,
      activeRooms:rooms.size,liveGames:[...rooms.values()].filter(r=>r.started&&!r.game.winner).length});
    }catch(e){return send(res,req,503,{error:"Platform statistics temporarily unavailable."});}
   }
@@ -606,6 +624,11 @@ wss.on("connection",ws=>{
   const r=ws.room;r.updated=t;
   if(msg.type==="ping")return emit(ws,{type:"pong"});
   if(msg.type==="sync")return emit(ws,snapshot(r));
+   if(msg.type==="focus"){
+    const next=msg.active===true;
+    if(ws.viewing!==next){ws.viewing=next;broadcast(r);}
+    return;
+   }
   if(ws.spectator){
    if(msg.type==="archive")return sendArchive(r,msg.gameNo,ws);
    return emit(ws,{type:"error",error:"Spectators have read-only access."});
