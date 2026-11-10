@@ -30,38 +30,66 @@ async function loadStats(){
   status.textContent=(data.liveGames||0)+" live "+(data.liveGames===1?"game":"games")+" · Numbers reflect this server right now";
  }catch(e){status.textContent="Live counts unavailable. Rooms may still work.";}
 }
+function infoMetric(label,value){
+ const metric=document.createElement("div");metric.className="directory-metric";
+ const top=document.createElement("small");top.textContent=label;
+ const amount=document.createElement("strong");amount.textContent=String(value);
+ metric.append(top,amount);return metric;
+}
 function renderRooms(){
  const box=$("publicRoomList");box.replaceChildren();
  const term=$("roomSearch").value.trim().toLowerCase(),filter=$("roomFilter").value;
  const items=listed.filter(r=>(!term||(r.title||"").toLowerCase().includes(term)||r.room.toLowerCase().includes(term))&&
-  (filter==="all"||(filter==="join"&&!r.started&&r.players<4)||(filter==="watch"&&(r.started||r.finished))||(filter==="rated"&&r.rated))).sort((a,b)=>{
+  (filter==="all"||(filter==="join"&&!r.started&&r.players<4)||
+   (filter==="watch"&&(r.started||r.finished))||(filter==="rated"&&r.rated))).sort((a,b)=>{
     const sort=$("roomSort").value;
     if(sort==="rating")return (b.averageRating??-1)-(a.averageRating??-1)||b.players-a.players;
-    if(sort==="audience")return (b.spectatorCount||0)-(a.spectatorCount||0);
+    if(sort==="audience")return (b.spectatorCount||0)-(a.spectatorCount||0)||b.players-a.players;
     if(sort==="players")return b.players-a.players;
     return b.updated-a.updated;
    });
+ $("lobbyTotal").textContent=String(listed.length);
+ $("lobbyJoinable").textContent=String(listed.filter(r=>!r.started&&r.players<4).length);
+ $("lobbyLive").textContent=String(listed.filter(r=>r.started&&!r.finished).length);
  if(!items.length){
-  box.append(paragraph(loaded?"No matching public rooms yet. Create one and invite your friends!":"Loading rooms…"));return;
+  const empty=document.createElement("div");empty.className="directory-empty";
+  const title=document.createElement("h3");title.textContent=loaded?"No rooms match your search":"Finding public rooms…";
+  const copy=document.createElement("p");copy.textContent=loaded?
+   "Try another filter, or host a new public room for your friends.":"Checking the community lobby.";
+  empty.append(title,copy);
+  if(loaded)empty.append(makeButton("Create a room",()=>window.QuadraApp?.changePanel?.("create",true),"primary"));
+  box.append(empty);return;
  }
  for(const room of items){
+  const already=!!window.QuadraApp?.isRoomOpen?.(room.room);
   const card=document.createElement("article");card.className="public-room-card";
   const top=document.createElement("div");top.className="room-card-top";
-  const heading=document.createElement("div");heading.className="room-card-name";heading.textContent=room.title||"Public chess room";
+  const title=document.createElement("div");title.className="room-card-title";
+  const heading=document.createElement("strong");heading.className="room-card-name";heading.textContent=room.title||"Public chess room";
+  const sub=document.createElement("small");sub.className="room-code-label";sub.textContent="Room "+room.room;
+  title.append(heading,sub);
   const status=document.createElement("span");status.className="room-card-status";
-  status.textContent=room.finished?"Between games":room.started?"Live match":"Lobby";
-  top.append(heading,status);
-  const meta=document.createElement("div");meta.className="room-card-meta";
-  const rating=Number.isFinite(room.averageRating)?"Avg "+room.averageRating+" provisional":"No account rating yet";
-  meta.textContent=room.room+" · "+(room.mode==="teams"?"Teams":"Free-for-all")+
-   " · "+room.players+"/4 seats · "+(room.spectatorCount||0)+" watching · "+
-   (room.rated?"Rated":"Casual")+" · Host "+room.host+" · "+rating+" · Round "+room.gameNo;
+  status.textContent=room.finished?"Between games":room.started?"Live game":room.players<4?"Open seats":"Ready check";
+  status.classList.add(room.started&&!room.finished?"live":room.finished?"finished":"open");
+  top.append(title,status);
+  const stats=document.createElement("div");stats.className="directory-metrics";
+  const clock=room.clock==="untimed"?"Untimed":(room.clock||"Untimed").replace(/([a-z])([0-9])/i,"$1 $2");
+  stats.append(infoMetric("SEATS",room.players+"/4"),infoMetric("WATCHING",room.spectatorCount||0),
+   infoMetric("CLOCK",clock));
+  const details=document.createElement("div");details.className="directory-details";
+  const description=document.createElement("span");
+  description.textContent=(room.mode==="teams"?"Teams":"Free-for-all")+" · "+(room.rated?"Rated":"Casual")+
+   " · "+(Number.isFinite(room.averageRating)?"Avg "+room.averageRating+" provisional":"Unrated field");
+  const host=document.createElement("span");host.textContent="Hosted by "+(room.host||"Guest");
+  details.append(description,host);
   const actions=document.createElement("div");actions.className="room-card-actions";
-  actions.append(
-   makeButton("Join room",()=>joinPublic(room),"primary",room.started||room.players>=4),
-   makeButton("Watch",()=>window.QuadraApp?.watchRoom?.(room.room),"ghost")
-  );
-  card.append(top,meta,actions);box.append(card);
+  actions.append(makeButton(already?"Open my room":"Join players",
+   ()=>already?window.QuadraApp?.activateRoom?.(room.room):joinPublic(room),"primary",
+   !already&&(room.started||room.players>=4)),
+   makeButton(already?"Open room":"Spectate",
+    ()=>window.QuadraApp?.watchRoom?.(room.room),"ghost",
+    !already&&!window.QuadraApp?.canAddRoom?.(room.room)));
+  card.append(top,stats,details,actions);box.append(card);
  }
 }
 async function loadRooms(){
@@ -75,7 +103,8 @@ async function loadRooms(){
  }catch(e){$("publicRoomStatus").textContent="Rooms could not load: "+e.message;renderRooms();}
 }
 async function joinPublic(room){
- if(window.QuadraApp?.isOnline?.()){$("publicRoomStatus").textContent="Disconnect from your current room before joining another.";return;}
+ if(window.QuadraApp?.isRoomOpen?.(room.room)){window.QuadraApp?.activateRoom?.(room.room);return;}
+ if(!window.QuadraApp?.canAddRoom?.(room.room)){$("publicRoomStatus").textContent="Your tab has too many open rooms. Leave one under My rooms first.";return;}
  const t=window.QuadraAccount?.token?.();
  if(room.rated&&!t){$("publicRoomStatus").textContent="Sign in to join a rated room.";window.QuadraApp?.changePanel?.("account",true);return;}
  try{
@@ -88,20 +117,45 @@ async function joinPublic(room){
   window.QuadraAccount?.refreshRooms?.();
  }catch(e){$("publicRoomStatus").textContent=e.message;}
 }
+function playerBadge(player){
+ const name=document.createElement("span");name.className="leader-identity-name";name.textContent="@"+player.username;
+ const wrap=document.createElement("span");wrap.className="leader-name";wrap.append(name);
+ if(player.role==="superuser"){
+  const badge=document.createElement("span");badge.className="superuser-badge";
+  badge.textContent="✦ Superuser";badge.setAttribute("title","Quadra Chess superuser");wrap.append(badge);
+ }
+ return wrap;
+}
 function renderLeaderList(){
- const el=$("leaderboardList");el.replaceChildren();
- if(!leaders.length){el.append(paragraph("No rated games for this format yet. The first leaderboard could start with your room."));return;}
+ const host=$("leaderboardList"),podium=$("leaderPodium");host.replaceChildren();podium.replaceChildren();
+ $("leaderTotalPlayers").textContent=String(leaders.length);
+ if(!leaders.length){
+  const p=paragraph("No rated games have been recorded for this format yet. Create a rated room to help build the standings.","leader-empty");
+  host.append(p);return;
+ }
+ for(const player of leaders.slice(0,3)){
+  const card=document.createElement("article");card.className="podium-entry podium-rank-"+player.position;
+  const place=document.createElement("span");place.className="podium-position";place.textContent="#"+player.position;
+  const name=playerBadge(player);
+  const rating=document.createElement("strong");rating.className="podium-rating";rating.textContent=String(player.rating);
+  const unit=document.createElement("small");unit.textContent=player.provisional?"Provisional Elo":"Elo rating";
+  const record=document.createElement("span");record.className="podium-record";record.textContent=player.wins+" wins · "+player.games+" games";
+  card.append(place,name,rating,unit,record);podium.append(card);
+ }
+ const headings=document.createElement("div");headings.className="leader-table-heading";
+ for(const text of ["RANK","PLAYER","GAMES","WINS","ELO"]){
+  const col=document.createElement("span");col.textContent=text;headings.append(col);
+ }
+ host.append(headings);
  for(const player of leaders){
   const row=document.createElement("article");row.className="leader-entry";
   const rank=document.createElement("span");rank.className="rank";rank.textContent="#"+player.position;
-  const text=document.createElement("div");
-  const name=document.createElement("strong");name.textContent="@"+player.username;
-   if(player.role==="superuser"){const badge=document.createElement("span");badge.className="superuser-badge";badge.textContent="✦ Superuser";badge.setAttribute("title","Quadra Chess superuser");name.append(badge);}
-  const info=document.createElement("small");
-  info.textContent=player.games+" played · "+player.wins+" wins"+(player.provisional?" · Provisional":"");
-  text.append(name,info);
-  const rating=document.createElement("span");rating.className="rating";rating.textContent=String(player.rating);
-  row.append(rank,text,rating);el.append(row);
+  const who=document.createElement("div");who.className="leader-person";who.append(playerBadge(player));
+  const games=document.createElement("span");games.className="leader-number";games.textContent=String(player.games);
+  const wins=document.createElement("span");wins.className="leader-number";wins.textContent=String(player.wins);
+  const rating=document.createElement("strong");rating.className="rating";rating.textContent=String(player.rating);
+  if(player.provisional){rating.setAttribute("title","Provisional rating until ten rated games");}
+  row.append(rank,who,games,wins,rating);host.append(row);
  }
 }
 function renderAchievements(){
