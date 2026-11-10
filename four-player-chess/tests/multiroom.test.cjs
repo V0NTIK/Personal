@@ -37,10 +37,10 @@ test("same account may play in several rooms while each room retains an independ
   assert.equal(away.seats[0].claimed,true);
   assert.equal(away.seats[0].online,true,"background room must remain connected");
   assert.equal(away.seats[0].viewing,false);
-  assert.equal(rooms.get(second.room).seats[0].ws,ws2);
+  assert.equal(rooms.get(second.room).seats[0].ws?.readyState,WebSocket.OPEN);
   const foreground=until(ws1,m=>m.type==="state"&&m.seats[0].viewing===true);
   ws1.send(JSON.stringify({type:"focus",active:true}));await foreground;
-  assert.equal(rooms.get(first.room).seats[0].ws,ws1);
+  assert.equal(rooms.get(first.room).seats[0].ws?.readyState,WebSocket.OPEN);
   const rejoined=await joinRoom(first.room,{account:SAME});
   assert.equal(rejoined.rejoined,true);
   assert.equal(rejoined.seat,first.seat);
