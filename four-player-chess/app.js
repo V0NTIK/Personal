@@ -15,6 +15,7 @@ let prefs={...initialPrefs};
 let state=fresh("ffa"),stack=[],selected=-1,targets=[],pending=null,orientation=0;
 let online=null,backup=null,reviewIndex=null,activePanel="home",playLocation="local",toastTimer=null;
 const roomSessions=new Map();
+let windowFocused=true;
 
 function tell(message){
  const el=$("toast");el.textContent=message;el.classList.remove("hidden");
@@ -559,7 +560,7 @@ function exportRecord(){
 }
 // A room membership is independent of which room is currently being displayed.
 function roomVisible(s){
- return online===s&&["waiting","play","moves","review"].includes(activePanel)&&
+ return windowFocused&&online===s&&["waiting","play","moves","review"].includes(activePanel)&&
   (typeof document.visibilityState!=="string"||document.visibilityState!=="hidden");
 }
 function updateFocus(){
@@ -948,8 +949,8 @@ function bind(){
  $("myroomsBrowse").addEventListener("click",()=>switchPanel("rooms",true));
  $("myroomsCreate").addEventListener("click",()=>switchPanel("create",true));
  $("myroomsRefresh").addEventListener("click",refreshKnownRooms);
- window.addEventListener("focus",updateFocus);
- window.addEventListener("blur",updateFocus);
+ window.addEventListener("focus",()=>{windowFocused=true;updateFocus();});
+ window.addEventListener("blur",()=>{windowFocused=false;updateFocus();});
  document.addEventListener("visibilitychange",updateFocus);
  $("headerLeaders").addEventListener("click",()=>switchPanel("community",true));
  $("headerAccount").addEventListener("click",()=>switchPanel("account",true));
